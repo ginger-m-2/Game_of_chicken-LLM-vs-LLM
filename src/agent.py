@@ -25,6 +25,12 @@ class Agent:
     profile: Dict[str, Any]
     use_llm: bool = False
 
+    def __init__(self, name, mbti, profile, use_llm):
+        self.name = name
+        self.mbti = mbti
+        self.profile = profile
+        self.use_llm = use_llm
+
     def decide(self, rng: random.Random, context: Optional[Dict[str, Any]] = None) -> Action:
         """
         Decision policy.
