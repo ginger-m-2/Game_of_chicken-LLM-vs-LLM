@@ -42,6 +42,8 @@ def build_agents(mbti_profiles_path: str, use_llm: bool) -> List[Agent]:
                 mbti=t,
                 profile=profiles.get(t, {}),
                 use_llm=use_llm,
+                model=model,
+                temperature=temperature,
             )
         )
     return agents
@@ -110,6 +112,8 @@ def run_tournament(
     cfg = load_yaml(tournament_cfg_path)
     seed = int(cfg.get("seed", 42))
     use_llm = bool(cfg.get("use_llm", False))
+    model = str(cfg.get("model", "gpt-4o-mini"))
+    temperature = float(cfg.get("temperature", 0.7))
 
     rng = random.Random(seed)
 
