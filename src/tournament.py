@@ -32,7 +32,7 @@ def load_yaml(path: str) -> Dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
-def build_agents(mbti_profiles_path: str, use_llm: bool) -> List[Agent]:
+def build_agents(mbti_profiles_path: str, use_llm: bool, model: str, temperature: float) -> List[Agent]:
     profiles = load_yaml(mbti_profiles_path)
     agents: List[Agent] = []
     for t in MBTI_TYPES:
@@ -117,7 +117,7 @@ def run_tournament(
 
     rng = random.Random(seed)
 
-    agents = build_agents(mbti_profiles_path, use_llm=use_llm)
+    agents = build_agents(mbti_profiles_path, use_llm=use_llm, model=model, temperature=temperature)
     rng.shuffle(agents)  # randomized bracket seeding
 
     all_rows: List[MatchRow] = []

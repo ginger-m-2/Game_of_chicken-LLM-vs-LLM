@@ -1,6 +1,6 @@
+from __future__ import annotations
 from dotenv import load_dotenv
 import os
-from __future__ import annotations
 import pandas as pd
 
 def summarize_results(csv_path: str = "data/results.csv") -> None:

@@ -1,6 +1,6 @@
+from __future__ import annotations
 from dotenv import load_dotenv
 import os
-from __future__ import annotations
 import random
 from typing import Literal, Tuple
 
