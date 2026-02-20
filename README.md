@@ -5,54 +5,57 @@
 
 ## Overview
 
-This project investigates whether MBTI-based persona prompts produce measurably distinct strategic behaviors in LLM agents across classical game-theoretic settings. We use a single fixed open-source model (Llama 3 8B / Mistral 7B) and vary only the persona prompts, isolating the effect of personality from model-level differences.
+This project investigates whether fine-tuning LLM agents on MBTI personality-typed text data produces more behaviorally distinct and strategically consistent agents than persona prompting alone. We use Llama 3 8B as a fixed base model and train separate LoRA/QLoRA adapters for each MBTI type, then evaluate agents in classical game-theoretic settings.
 
-### Research Questions
+### Research Question
 
-1. Do LLM agents prompted with different MBTI types exhibit distinct strategic behaviors?
-2. Are personality-driven behavioral patterns consistent across different games?
-3. Can systematic prompt optimization improve both role-play fidelity and strategic performance?
+**Does fine-tuning produce more consistent and distinct agent behavior than prompting alone, and does that translate to measurably different strategic outcomes?**
+
+We wanted to go beyond the observation that different prompts produce different outputs. Fine-tuned agents internalize personality traits at the weight level rather than relying on instruction-following, which may produce deeper behavioral consistency, or it may not.
 
 ## AI Components
 
-- **Behavioral evaluation** — Quantitative metrics and an LLM-as-judge pipeline to assess how faithfully each agent embodies its assigned MBTI type during gameplay.
-- **Prompt optimization** — Iterative refinement of persona prompts, measuring the impact of different prompting strategies (trait emphasis, few-shot examples, chain-of-thought) on both fidelity and performance.
-- **Multi-game generalization** — Testing agents across three strategically distinct games to determine whether personality-driven patterns are robust or game-specific.
+- **LoRA/QLoRA fine-tuning** — Training separate lightweight adapters for each MBTI type on personality-consistent text data (e.g., Kaggle MBTI dataset, MBTI subreddit posts). This is the core ML training component of the project.
+- **Fine-tuned vs. prompt-only comparison** — Running identical tournaments with fine-tuned agents and prompt-only agents to quantify the difference in behavioral consistency and strategic performance.
+- **Behavioral evaluation pipeline** — Quantitative metrics to assess role-play fidelity, including behavioral consistency scoring, reasoning trace analysis, and baseline controls.
 
 ## Games
 
 | Game | Players Choose | Tension |
 |------|---------------|---------|
-| **Chicken** | Escalate or Yield | Brinksmanship — mutual escalation is the worst outcome, but unilateral escalation wins |
-| **Prisoner's Dilemma** | Cooperate or Defect | Self-interest — mutual defection is suboptimal but individually rational |
-| **Stag Hunt** | Stag or Hare | Trust — high-payoff cooperation requires coordination |
+| **Chicken** (primary) | Escalate or Yield | Brinksmanship — mutual escalation is the worst outcome, but unilateral escalation wins |
+| **Prisoner's Dilemma** (stretch) | Cooperate or Defect | Self-interest — mutual defection is suboptimal but individually rational |
+
+We focus on Chicken as the primary game to keep the fine-tuning workload manageable. Prisoner's Dilemma is a stretch goal for cross-game comparison.
 
 ## Methodology
 
-- 16 LLM agents, each assigned a unique MBTI type, all running on the same base model
-- One-shot interactions with fixed payoff matrices per game
-- Single-elimination tournament (Chicken) and round-robin (PD, Stag Hunt) formats
-- 15–20 tournament iterations with randomized pairings for statistical power
-- Control experiments with neutral (no persona) and shuffled-persona agents
-- All outcomes, reasoning traces, and metadata logged in structured format (JSON/SQLite)
+### Fine-Tuning Pipeline
+1. **Data collection** — Gather personality-typed text from the Kaggle MBTI dataset (~8,600 users with labeled forum posts) and/or MBTI subreddit posts. Clean and format as instruction-tuning data.
+2. **LoRA adapter training** — For each MBTI type (starting with 4 representative types, expanding to 16 if time allows), fine-tune a separate LoRA adapter on Llama 3 8B using Hugging Face PEFT + QLoRA for memory efficiency.
+3. **Validation** — Verify that fine-tuned adapters produce personality-consistent text outside of the game context before running tournaments.
+
+### Tournament Design
+- 16 agents (one per MBTI type), all sharing the same Llama 3 8B base with different LoRA adapters
+- Parallel tournament with prompt-only agents (same base model, MBTI persona in system prompt, no fine-tuning) as a control group
+- One-shot interactions with a fixed payoff matrix
+- Single-elimination bracket, 15–20 iterations with randomized pairings
+- All decisions, reasoning traces, and metadata logged (JSON/SQLite)
 
 MBTI is used as a structured personality abstraction rather than a validated psychological model.
 
 ## Evaluation
 
 ### Role-Play Fidelity
-- **Behavioral consistency scoring** — comparing agent actions against expected MBTI tendencies (e.g., ENTJ should escalate more; ISFP should cooperate more)
-- **Reasoning trace analysis** — keyword/sentiment analysis + LLM-as-judge assessment of chain-of-thought outputs
-- **Baseline comparisons** — neutral agents and shuffled persona labels as controls
+- **Behavioral consistency scoring** — Do agents act in line with their MBTI type's expected tendencies? (e.g., ENTJ escalates more, ISFP cooperates more)
+- **Reasoning trace analysis** — Keyword/sentiment analysis of chain-of-thought outputs to assess personality alignment
+- **Fine-tuned vs. prompted comparison** — Are fine-tuned agents more consistent in their personality-typed behavior than prompted agents?
+- **Baseline controls** — Neutral (no persona) agents and shuffled persona labels
 
 ### Strategic Performance
-- Win rates, escalation/cooperation frequencies, mutual worst-outcome rates
-- Analysis along each MBTI dimension (E/I, S/N, T/F, J/P)
-- Cross-game behavioral pattern comparison
-
-### Prompt Optimization
-- Performance metrics tracked across prompt iterations
-- Measuring the tradeoff between role-play fidelity and strategic success
+- Win rates, escalation frequencies, mutual worst-outcome rates
+- Analysis along MBTI dimensions (E/I, S/N, T/F, J/P)
+- Comparative performance: fine-tuned vs. prompt-only agents
 
 ## Repository Structure
 
@@ -60,22 +63,26 @@ MBTI is used as a structured personality abstraction rather than a validated psy
 src/
   agent.py              # LLM agent with observe-think-act loop
   chicken.py            # Game of Chicken engine
-  prisoners_dilemma.py  # Prisoner's Dilemma engine
-  stag_hunt.py          # Stag Hunt engine
-  tournament.py         # Tournament orchestration (bracket + round-robin)
-  evaluation.py         # Role-play fidelity metrics and analysis
+  tournament.py         # Tournament orchestration and bracket logic
+  evaluation.py         # Role-play fidelity metrics
   analysis.py           # Statistical analysis and visualization
   main.py               # Entry point
 
+fine_tuning/
+  prepare_data.py       # Data cleaning and formatting for LoRA training
+  train_lora.py         # LoRA/QLoRA fine-tuning script
+  validate_adapter.py   # Personality consistency validation for adapters
+
 config/
   mbti_profiles.yaml    # MBTI trait definitions and expected behaviors
-  payoff_matrix.yaml    # Payoff matrices for all three games
-  model_config.yaml     # Base model parameters (temperature, tokens, etc.)
+  payoff_matrix.yaml    # Payoff matrices
+  model_config.yaml     # Base model and LoRA hyperparameters
 
 prompts/
-  mbti_prompts/         # 16 versioned persona prompt templates
+  mbti_prompts/         # 16 persona prompt templates (for prompt-only control group)
 
 data/
+  training/             # MBTI-typed text data for fine-tuning
   results/              # Tournament logs (JSON/SQLite)
   analysis/             # Derived statistics and visualizations
 ```
@@ -84,12 +91,17 @@ data/
 
 ```bash
 # Clone the repository
-git clone https://github.com/ginger-m-2/Game_of_chicken-LLM-vs-LLM.git
+git clone https://github.com/KAsqech/Game_of_chicken-LLM-vs-LLM.git
 cd Game_of_chicken-LLM-vs-LLM
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Install and pull the base model (via Ollama)
+# Key dependencies:
+#   torch, transformers, peft, bitsandbytes (for QLoRA)
+#   ollama or vllm (for inference)
+#   pandas, numpy, scipy, matplotlib
+
+# Pull the base model
 ollama pull llama3:8b
 ```
