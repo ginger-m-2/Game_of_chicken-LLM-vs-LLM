@@ -84,7 +84,7 @@ data/
 
 ```bash
 # Clone the repository
-git clone https://github.com/<org>/Game_of_chicken-LLM-vs-LLM.git
+git clone https://github.com/ginger-m-2/Game_of_chicken-LLM-vs-LLM.git
 cd Game_of_chicken-LLM-vs-LLM
 
 # Install dependencies
