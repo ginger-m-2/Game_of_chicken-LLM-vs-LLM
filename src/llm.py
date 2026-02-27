@@ -1,5 +1,22 @@
 # File to host LLM StateGraph code
+"""
+llm.py
 
+Provides a unified interface for language model inference.
+
+This module abstracts backend-specific implementation details
+(e.g., Ollama, Hugging Face, vLLM) and exposes a standardized
+generation function for use by Agent instances.
+
+It handles:
+    - Prompt submission
+    - Temperature and token controls
+    - Optional reproducibility seeds
+    - Timeouts and backend errors
+
+This file centralizes LLM interactions to ensure consistency
+across conditioning methods.
+"""
 from langgraph.graph import StateGraph
 from typing import Dict, Union, List, Any, TypedDict, Literal
 from langchain.chat_models import init_chat_model
