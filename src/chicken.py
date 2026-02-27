@@ -1,3 +1,14 @@
+"""
+chicken.py
+
+Implements the Game of Chicken mechanics.
+
+This module defines the payoff matrix and provides utility functions
+to compute payoffs and determine winners based on player actions.
+
+It contains no model logic, personality conditioning, or experiment control.
+Its sole purpose is to define the formal game environment used in experiments.
+"""
 from __future__ import annotations
 from dotenv import load_dotenv
 import os

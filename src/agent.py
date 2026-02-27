@@ -1,4 +1,21 @@
 # src/agent.py
+"""
+agent.py
+
+Defines the core LLM agent abstraction used in the Game of Chicken experiments.
+
+This module implements the AgentConfig data structure (which specifies
+conditioning method, MBTI type, and model parameters) and the Agent class,
+which generates strategic decisions ("ESCALATE" or "YIELD") during gameplay.
+
+The Agent class supports three conditioning modes:
+    - neutral: no persona prompt, no adapter
+    - prompt: MBTI personality injected via system prompt
+    - lora: personality embedded via fine-tuned adapter weights
+
+This file contains no experiment orchestration or logging logic.
+It is responsible solely for personality conditioning and decision generation.
+"""
 from __future__ import annotations
 
 import random
