@@ -1,5 +1,18 @@
 #Current issue: even the small test case is taking so long to load that it isn't even loading
+"""
+run_experiment.py
 
+Implements the primary controlled experimental framework.
+
+This module constructs agents across conditioning methods and MBTI types,
+generates matchup pairings, executes repeated simulations with controlled
+random seeds, and logs structured results.
+
+It enforces identical generation parameters across groups to isolate
+the effect of personality conditioning method (neutral vs prompt vs lora).
+
+This file replaces the need for a separate experiment.py module.
+"""
 from __future__ import annotations
 
 import json

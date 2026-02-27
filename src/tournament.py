@@ -1,3 +1,14 @@
+"""
+tournament.py
+
+Implements an optional single-elimination tournament mode.
+
+Agents are paired in bracket rounds, winners advance, and
+a final champion is determined.
+
+This module is separate from the repeated-measures experimental
+framework and is intended for exploratory or illustrative use.
+"""
 from __future__ import annotations
 
 import json
