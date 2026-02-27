@@ -27,3 +27,8 @@ def winner_from_actions(a: Action, b: Action, rng: random.Random) -> int:
     if pb > pa:
         return 1
     return 0 if rng.random() < 0.5 else 1
+
+def outcome(a: Action, b: Action, rng: random.Random) -> dict:
+    pa, pb = payoff(a, b)
+    w = 0 if pa > pb else 1 if pb > pa else (0 if rng.random() < 0.5 else 1)
+    return {"payoff_a": pa, "payoff_b": pb, "winner": w}
