@@ -79,9 +79,26 @@ class LLMAgent:
             "chosen_action": self.mbti_llm.invoke(agent_action_context_window)
         } 
 
+    def _generate_input(self) -> GameAgentState:
+        return {
+            "mbti_prompt":self.mbti_prompt,
+            "game_prompt":self.game_prompt,
+            "chosen_action":""
+        }
 
 
     def get_action(self):
-        # Compile the agent stage graph here, invoke it, and return the action to the outside world.
-        pass
+        agent_builder = StateGraph(self.GameAgentState)
+
+        agent_builder.add_node("decision_node", self._decision_node)
+
+        agent_builder.set_entry_point("decision_node")
+        agent_builder.set_finish_point("decision_node")
+
+        agent_graph = agent_builder.compile()
+
+        input_state = self._generate_input()
+
+        return agent_graph.invoke(input_state)
+
 
