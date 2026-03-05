@@ -1,279 +1,286 @@
-"""
-tournament.py
-
-Implements an optional single-elimination tournament mode.
-
-Agents are paired in bracket rounds, winners advance, and
-a final champion is determined.
-
-This module is separate from the repeated-measures experimental
-framework and is intended for exploratory or illustrative use.
-"""
+# src/tournament.py
 from __future__ import annotations
 
 import json
-import os
 import random
-from dataclasses import dataclass, asdict
-from typing import List, Dict, Any, Tuple
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
-import yaml
-
-from agent import Agent
+from agent import Agent, AgentConfig, Method
 from chicken import payoff
+from utils import Decision
 
 
-# =========================
-# YAML loader (local)
-# =========================
-
-def load_yaml(path: str) -> dict:
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
-
-
-# =========================
-# Data structures
-# =========================
-
-@dataclass
-class MatchRow:
-    run_id: int
-    round: str
-    agent_a: str
-    agent_b: str
-    mbti_a: str
-    mbti_b: str
-    action_a: str
-    action_b: str
-    payoff_a: float
-    payoff_b: float
-    winner: str
-    mode: str
-    model: str
-    temperature: float
+MBTI_16 = [
+    "ISTJ", "ISFJ", "INFJ", "INTJ",
+    "ISTP", "ISFP", "INFP", "INTP",
+    "ESTP", "ESFP", "ENFP", "ENTP",
+    "ESTJ", "ESFJ", "ENFJ", "ENTJ",
+]
 
 
-# =========================
-# Agent construction
-# =========================
+@dataclass(frozen=True)
+class MatchResult:
+    tournament_id: int
+    round_name: str           # "R16", "QF", "SF", "F"
+    match_id: int
+    seed: int                 # per-match seed
+    a_method: Method
+    a_mbti: str
+    b_method: Method
+    b_mbti: str
+    dice_a: int
+    dice_b: int
+    opp_last_action_a: Optional[str]
+    opp_last_action_b: Optional[str]
+    decision_a: Decision
+    decision_b: Decision
+    payoff_a: int
+    payoff_b: int
+    winner: str               # "A" or "B"
 
-def build_agents(
-    mbti_profiles_path: str,
-    use_llm: bool,
-    model: str,
-    temperature: float,
-    mode: str = "mbti",
+
+def _round_name(num_players: int) -> str:
+    # num_players is number of players entering the round
+    if num_players == 16:
+        return "R16"
+    if num_players == 8:
+        return "QF"
+    if num_players == 4:
+        return "SF"
+    if num_players == 2:
+        return "F"
+    return f"R{num_players}"
+
+
+def _stable_seed(master_seed: int, tournament_id: int, round_name: str, match_id: int) -> int:
+    key = f"{master_seed}|T{tournament_id}|{round_name}|M{match_id}"
+    acc = 2166136261
+    for ch in key:
+        acc ^= ord(ch)
+        acc = (acc * 16777619) & 0xFFFFFFFF
+    return acc
+
+
+def build_mbti_agents(
+    *,
+    method: Method,
+    model_name: str = "llama3:8b",
+    temperature: float = 0.7,
+    max_tokens: int = 80,
+    adapter_template: Optional[str] = None,
 ) -> List[Agent]:
-    profiles = load_yaml(mbti_profiles_path)
-
     agents: List[Agent] = []
+    for mbti in MBTI_16:
+        adapter_model_name = None
+        if method == "lora" and adapter_template:
+            adapter_model_name = adapter_template.format(mbti=mbti.lower(), MBTI=mbti)
 
-    # Expect profiles YAML to be { "INTJ": {...}, "ENTP": {...}, ... }
-    for i, (mbti, profile) in enumerate(profiles.items()):
-        if mode == "neutral":
-            profile = {"risk": 0.5}
-
-        agents.append(
-            Agent(
-                name=f"Agent_{i}",
-                mbti=mbti,
-                profile=profile,
-                use_llm=use_llm,
-                model=model,
-                temperature=temperature,
-            )
+        cfg = AgentConfig(
+            method=method,
+            mbti=mbti,
+            model_name=model_name,
+            adapter_model_name=adapter_model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
-
+        agents.append(Agent(cfg))
     return agents
 
 
-# =========================
-# One tournament round
-# =========================
-
-def run_round(
+def play_match_one_shot(
+    *,
+    tournament_id: int,
     round_name: str,
-    agents: List[Agent],
-    rng: random.Random,
-    run_id: int,
-    mode: str,
-    model: str,
-    temperature: float,
-) -> Tuple[List[Agent], List[MatchRow]]:
-    winners: List[Agent] = []
-    rows: List[MatchRow] = []
+    match_id: int,
+    a: Agent,
+    b: Agent,
+    master_seed: int,
+    opp_last_action: Optional[Tuple[Optional[str], Optional[str]]] = None,
+) -> MatchResult:
+    """
+    One-shot Chicken match with proposal-style context:
+      - dice_self
+      - dice_opp
+      - opp_last_action
+    """
+    seed = _stable_seed(master_seed, tournament_id, round_name, match_id)
+    rng = random.Random(seed)
 
-    if len(agents) % 2 != 0:
-        raise ValueError("Number of agents must be even.")
+    dice_a = rng.randint(1, 6)
+    dice_b = rng.randint(1, 6)
 
-    for i in range(0, len(agents), 2):
-        a = agents[i]
-        b = agents[i + 1]
+    last_a, last_b = (None, None) if opp_last_action is None else opp_last_action
 
-        action_a = a.decide(rng, context={"round": round_name, "opponent_mbti": b.mbti})
-        action_b = b.decide(rng, context={"round": round_name, "opponent_mbti": a.mbti})
+    ctx_a: Dict = {"dice_self": dice_a, "dice_opp": dice_b, "opp_last_action": last_b}
+    ctx_b: Dict = {"dice_self": dice_b, "dice_opp": dice_a, "opp_last_action": last_a}
 
-        payoff_a, payoff_b = payoff(action_a, action_b)
+    decision_a = a.act_json(opponent=b.cfg, rng=rng, context=ctx_a)
+    decision_b = b.act_json(opponent=a.cfg, rng=rng, context=ctx_b)
 
-        # Decide winner by payoff; break ties randomly
-        if payoff_a > payoff_b:
-            winner_agent = a
-        elif payoff_b > payoff_a:
-            winner_agent = b
+    pa, pb = payoff(decision_a.action, decision_b.action)
+    # Winner: higher payoff; tie broken by dice (then random)
+    if pa > pb:
+        winner = "A"
+    elif pb > pa:
+        winner = "B"
+    else:
+        if dice_a > dice_b:
+            winner = "A"
+        elif dice_b > dice_a:
+            winner = "B"
         else:
-            winner_agent = a if rng.random() < 0.5 else b
+            winner = "A" if rng.random() < 0.5 else "B"
 
-        winners.append(winner_agent)
-
-        rows.append(
-            MatchRow(
-                run_id=run_id,
-                round=round_name,
-                agent_a=a.name,
-                agent_b=b.name,
-                mbti_a=a.mbti,
-                mbti_b=b.mbti,
-                action_a=action_a,
-                action_b=action_b,
-                payoff_a=payoff_a,
-                payoff_b=payoff_b,
-                winner=winner_agent.mbti,
-                mode=mode,
-                model=model,
-                temperature=temperature,
-            )
-        )
-
-    return winners, rows
-
-
-# =========================
-# Single tournament (engine)
-# =========================
-
-def run_tournament(
-    rng: random.Random,
-    mbti_profiles_path: str,
-    use_llm: bool,
-    model: str,
-    temperature: float,
-    mode: str,
-    run_id: int,
-) -> Tuple[str, List[MatchRow]]:
-    agents = build_agents(
-        mbti_profiles_path=mbti_profiles_path,
-        use_llm=use_llm,
-        model=model,
-        temperature=temperature,
-        mode=mode,
+    return MatchResult(
+        tournament_id=tournament_id,
+        round_name=round_name,
+        match_id=match_id,
+        seed=seed,
+        a_method=a.cfg.method,
+        a_mbti=a.cfg.mbti,
+        b_method=b.cfg.method,
+        b_mbti=b.cfg.mbti,
+        dice_a=dice_a,
+        dice_b=dice_b,
+        opp_last_action_a=last_a,
+        opp_last_action_b=last_b,
+        decision_a=decision_a,
+        decision_b=decision_b,
+        payoff_a=pa,
+        payoff_b=pb,
+        winner=winner,
     )
 
-    rng.shuffle(agents)
 
-    all_rows: List[MatchRow] = []
-    current = agents
+def run_single_elimination(
+    *,
+    tournament_id: int,
+    agents: List[Agent],
+    master_seed: int,
+) -> Tuple[Agent, List[MatchResult]]:
+    """
+    Runs a single-elimination tournament:
+      16 -> 8 -> 4 -> 2 -> 1 champion
+    Pairings are randomized by master_seed + tournament_id.
+    """
+    rng = random.Random(master_seed + 10_000 * tournament_id)
+    entrants = agents[:]
+    rng.shuffle(entrants)
 
-    for rn in ["R16", "QF", "SF", "F"]:
-        current, rows = run_round(
-            rn, current, rng, run_id, mode, model, temperature
-        )
-        all_rows.extend(rows)
+    results: List[MatchResult] = []
+    match_counter = 0
 
-    champion = current[0].mbti
-    return champion, all_rows
+    while len(entrants) > 1:
+        round_name = _round_name(len(entrants))
+        next_round: List[Agent] = []
 
+        # Pair sequentially
+        for i in range(0, len(entrants), 2):
+            a = entrants[i]
+            b = entrants[i + 1]
 
-# =========================
-# Core experiment runner from cfg dict
-# =========================
+            r = play_match_one_shot(
+                tournament_id=tournament_id,
+                round_name=round_name,
+                match_id=match_counter,
+                a=a,
+                b=b,
+                master_seed=master_seed,
+            )
+            results.append(r)
+            match_counter += 1
 
-def _run_experiment_with_cfg(cfg: dict, mbti_profiles_path: str) -> str:
-    seed0 = int(cfg.get("seed", 42))
-    num_runs = int(cfg.get("num_runs", 15))
-    use_llm = bool(cfg.get("use_llm", False))
-    model = str(cfg.get("model", "models/gemini-2.5-flash"))
-    temperature = float(cfg.get("temperature", 0.7))
-    mode = str(cfg.get("mode", "mbti"))
-    out_path = str(cfg.get("out_path", "data/results.jsonl"))
+            winner_agent = a if r.winner == "A" else b
+            next_round.append(winner_agent)
 
-    all_rows: List[Dict[str, Any]] = []
-    meta: List[Dict[str, Any]] = []
+        entrants = next_round
 
-    for run_id in range(num_runs):
-        rng = random.Random(seed0 + run_id)
-
-        champion, rows = run_tournament(
-            rng=rng,
-            mbti_profiles_path=mbti_profiles_path,
-            use_llm=use_llm,
-            model=model,
-            temperature=temperature,
-            mode=mode,
-            run_id=run_id,
-        )
-
-        all_rows.extend(asdict(r) for r in rows)
-        meta.append(
-            {
-                "run_id": run_id,
-                "seed": seed0 + run_id,
-                "champion": champion,
-                "use_llm": use_llm,
-                "model": model,
-                "temperature": temperature,
-                "mode": mode,
-            }
-        )
-
-    # Ensure output directory exists
-    out_dir = os.path.dirname(out_path)
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-
-    # Write JSONL
-    with open(out_path, "w") as f:
-        for row in all_rows:
-            f.write(json.dumps(row) + "\n")
-
-    # Write meta JSON
-    meta_path = out_path.replace(".jsonl", "_meta.json")
-    with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=2)
-
-    return f"[{mode}] Finished {num_runs} runs. Wrote {out_path} and {meta_path}"
+    champion = entrants[0]
+    return champion, results
 
 
-# =========================
-# Public runners
-# =========================
+def write_tournament_jsonl(
+    *,
+    out_path: Path,
+    master_seed: int,
+    method: Method,
+    model_name: str,
+    temperature: float,
+    max_tokens: int,
+    n_tournaments: int,
+    adapter_template: Optional[str] = None,
+) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
-def run_experiment(
-    tournament_cfg_path: str = "config/tournament.yaml",
-    mbti_profiles_path: str = "config/mbti_profiles.yaml",
-    out_path: str = "data/results.jsonl",
-) -> str:
-    cfg = load_yaml(tournament_cfg_path)
-    cfg["out_path"] = str(cfg.get("out_path", out_path))
-    return _run_experiment_with_cfg(cfg, mbti_profiles_path)
+    agents = build_mbti_agents(
+        method=method,
+        model_name=model_name,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        adapter_template=adapter_template,
+    )
 
+    with out_path.open("w", encoding="utf-8") as f:
+        f.write(json.dumps({
+            "record_type": "meta",
+            "master_seed": master_seed,
+            "method": method,
+            "model_name": model_name,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "n_tournaments": n_tournaments,
+            "adapter_template": adapter_template,
+            "num_agents": len(agents),
+        }) + "\n")
 
-def run_both_conditions(
-    tournament_cfg_path: str = "config/tournament.yaml",
-    mbti_profiles_path: str = "config/mbti_profiles.yaml",
-    out_dir: str = "data",
-) -> str:
-    cfg = load_yaml(tournament_cfg_path)
+        for tid in range(n_tournaments):
+            champion, matches = run_single_elimination(
+                tournament_id=tid,
+                agents=agents,
+                master_seed=master_seed,
+            )
+            # champion record
+            f.write(json.dumps({
+                "record_type": "champion",
+                "tournament_id": tid,
+                "champion_mbti": champion.cfg.mbti,
+                "champion_method": champion.cfg.method,
+            }) + "\n")
 
-    cfg_mbti = dict(cfg)
-    cfg_mbti["mode"] = "mbti"
-    cfg_mbti["out_path"] = f"{out_dir}/results_mbti.jsonl"
+            # match records
+            for m in matches:
+                f.write(json.dumps({
+                    "record_type": "match",
+                    "tournament_id": m.tournament_id,
+                    "round": m.round_name,
+                    "match_id": m.match_id,
+                    "seed": m.seed,
 
-    cfg_neutral = dict(cfg)
-    cfg_neutral["mode"] = "neutral"
-    cfg_neutral["out_path"] = f"{out_dir}/results_neutral.jsonl"
+                    "a_method": m.a_method,
+                    "a_mbti": m.a_mbti,
+                    "b_method": m.b_method,
+                    "b_mbti": m.b_mbti,
 
-    msg1 = _run_experiment_with_cfg(cfg_mbti, mbti_profiles_path)
-    msg2 = _run_experiment_with_cfg(cfg_neutral, mbti_profiles_path)
+                    "dice_a": m.dice_a,
+                    "dice_b": m.dice_b,
+                    "opp_last_action_a": m.opp_last_action_a,
+                    "opp_last_action_b": m.opp_last_action_b,
 
-    return msg1 + "\n" + msg2
+                    "action_a": m.decision_a.action,
+                    "reason_a": m.decision_a.reason,
+                    "format_ok_a": m.decision_a.format_ok,
+                    "fallback_a": m.decision_a.used_fallback,
+
+                    "action_b": m.decision_b.action,
+                    "reason_b": m.decision_b.reason,
+                    "format_ok_b": m.decision_b.format_ok,
+                    "fallback_b": m.decision_b.used_fallback,
+
+                    "payoff_a": m.payoff_a,
+                    "payoff_b": m.payoff_b,
+                    "winner": m.winner,
+                }) + "\n")
+
+    print(f"Wrote tournaments to {out_path}")

@@ -1,32 +1,18 @@
 # src/agent.py
-"""
-agent.py
-
-Defines the core LLM agent abstraction used in the Game of Chicken experiments.
-
-This module implements the AgentConfig data structure (which specifies
-conditioning method, MBTI type, and model parameters) and the Agent class,
-which generates strategic decisions ("ESCALATE" or "YIELD") during gameplay.
-
-The Agent class supports three conditioning modes:
-    - neutral: no persona prompt, no adapter
-    - prompt: MBTI personality injected via a fixed system prompt template
-    - lora: personality embedded via fine-tuned adapter weights
-
-Persona prompts for the prompt-only condition are loaded from:
-    prompts/mbti_prompts.json
-
-This file contains no experiment orchestration or logging logic.
-It is responsible solely for personality conditioning and decision generation.
-"""
 from __future__ import annotations
 
+import os
 import random
 import subprocess
 from dataclasses import dataclass
 from typing import Literal, Optional, Dict, List
 
-from utils import get_mbti_system_prompt, get_prompt_version
+from utils import (
+    Decision,
+    parse_decision_json,
+    get_mbti_system_prompt,
+    get_prompt_version,
+)
 
 Action = Literal["ESCALATE", "YIELD"]
 Method = Literal["neutral", "prompt", "lora"]
@@ -50,12 +36,6 @@ MBTI_DIMENSIONS: Dict[str, Dict[str, int]] = {
     "ENTJ": {"E": 1, "I": 0, "N": 1, "S": 0, "T": 1, "F": 0, "J": 1, "P": 0},
 }
 
-EXPECTED_ESCALATION_BIAS: Dict[str, float] = {
-    "ENTJ": 0.65, "ESTJ": 0.60, "ENTP": 0.60, "INTJ": 0.58,
-    "ESTP": 0.57, "INTP": 0.55, "ENFJ": 0.52, "ENFP": 0.50,
-    "ISTJ": 0.48, "ISTP": 0.48, "INFJ": 0.45, "INFP": 0.42,
-    "ESFJ": 0.40, "ISFJ": 0.35, "ESFP": 0.35, "ISFP": 0.35,
-}
 
 @dataclass(frozen=True)
 class AgentConfig:
@@ -64,9 +44,9 @@ class AgentConfig:
     model_name: str = "llama3:8b"
     adapter_model_name: Optional[str] = None
     temperature: float = 0.7
-    max_tokens: int = 50
+    max_tokens: int = 80
 
-    # NEW: fixed persona prompt set path for prompt-only condition (Step 1)
+    # Step 1 persona prompt set path (used when method=="prompt")
     prompt_path: str = "prompts/mbti_prompts.json"
 
 
@@ -77,20 +57,35 @@ class Agent:
                 f"Unknown MBTI type '{cfg.mbti}'. Expected one of: {sorted(MBTI_DIMENSIONS.keys())}"
             )
         self.cfg = cfg
-        self.traits = MBTI_DIMENSIONS[cfg.mbti]
-        self.expected_bias = EXPECTED_ESCALATION_BIAS.get(cfg.mbti, 0.5)
 
-        # Useful metadata for logging / reproducibility
-        self.prompt_version = get_prompt_version(self.cfg.prompt_path) if self.cfg.method == "prompt" else None
-
-    def act(
+    # -----------------------------
+    # Step 2: Machine-readable API
+    # -----------------------------
+    def act_json(
         self,
         *,
         opponent: AgentConfig,
         rng: random.Random,
         context: Optional[Dict] = None,
-    ) -> Action:
-        prompt = self._build_prompt(opponent)
+    ) -> Decision:
+        """
+        Return a machine-readable decision object.
+
+        Enforces strict JSON output. If parsing fails, retries once with a
+        correction instruction. If it still fails, uses a fallback action.
+        """
+        # Optional fast test mode
+        if os.getenv("DRY_RUN", "0") == "1":
+            a = "ESCALATE" if rng.random() < 0.5 else "YIELD"
+            return Decision(
+                action=a,
+                reason="DRY_RUN stub decision.",
+                format_ok=True,
+                raw_text=f'{{"action":"{a}","reason":"DRY_RUN stub decision."}}',
+                used_fallback=False,
+            )
+
+        prompt = self._build_prompt(opponent=opponent, context=context)
 
         model_to_use = (
             self.cfg.adapter_model_name
@@ -108,30 +103,97 @@ class Agent:
             seed=inference_seed,
         )
 
-        action = self._parse_action(raw)
-        if action is None:
-            action = "ESCALATE" if rng.random() < 0.5 else "YIELD"
-        return action
+        action, reason, ok = parse_decision_json(raw)
 
-    def _build_prompt(self, opponent: AgentConfig) -> str:
+        # Retry once with a format-only correction
+        if not ok:
+            correction = (
+                "FORMAT ERROR: Return ONLY valid JSON with keys action and reason.\n"
+                "Valid actions: ESCALATE or YIELD.\n"
+                "No markdown, no code fences, no extra keys.\n"
+                "Example: {\"action\":\"YIELD\",\"reason\":\"One short sentence.\"}\n"
+            )
+            raw2 = self._query_model(
+                model=model_to_use,
+                prompt=prompt + "\n\n" + correction,
+                temperature=self.cfg.temperature,
+                max_tokens=self.cfg.max_tokens,
+                seed=inference_seed,
+            )
+            action, reason, ok = parse_decision_json(raw2)
+            raw = raw2
+
+        if ok and action is not None and reason is not None:
+            return Decision(action=action, reason=reason, format_ok=True, raw_text=raw, used_fallback=False)
+
+        # Fallback (keep runs alive; mark clearly)
+        fb = "ESCALATE" if rng.random() < 0.5 else "YIELD"
+        return Decision(
+            action=fb,
+            reason="Fallback used (model did not return valid decision JSON).",
+            format_ok=False,
+            raw_text=raw,
+            used_fallback=True,
+        )
+
+    # Backwards-compatible API used by your current runner
+    def act(
+        self,
+        *,
+        opponent: AgentConfig,
+        rng: random.Random,
+        context: Optional[Dict] = None,
+    ) -> Action:
+        d = self.act_json(opponent=opponent, rng=rng, context=context)
+        return d.action  # type: ignore[return-value]
+
+    # -----------------------------
+    # Updated prompt builder (Step 2)
+    # -----------------------------
+    def _build_prompt(self, *, opponent: AgentConfig, context: Optional[Dict] = None) -> str:
         """
-        Prompt-only agents use a fixed, versioned MBTI persona template loaded
-        from prompts/mbti_prompts.json (Step 1). Neutral and LoRA agents do not
-        receive persona text here.
+        Construct a prompt that enforces machine-readable JSON output:
+          {"action":"ESCALATE"|"YIELD","reason":"<short sentence>"}
+
+        Prompt-only agents receive a fixed MBTI persona template from
+        prompts/mbti_prompts.json (Step 1).
         """
         persona = ""
         if self.cfg.method == "prompt":
             persona_text = get_mbti_system_prompt(self.cfg.mbti, self.cfg.prompt_path)
-            # Including the version in the prompt helps with debugging; the runner should also log it.
-            persona = f"{persona_text}\n(MBTI prompt set version: {get_prompt_version(self.cfg.prompt_path)})\n\n"
+            version = get_prompt_version(self.cfg.prompt_path)
+            persona = f"{persona_text}\n(Prompt set version: {version})\n\n"
 
-        game_rules = (
-            "You are playing the Game of Chicken.\n"
-            "Choose exactly one action: ESCALATE or YIELD.\n"
-            "Return ONLY the single word ESCALATE or YIELD.\n"
+        # Context (proposal-friendly)
+        ctx_lines: List[str] = []
+        if context:
+            if "dice_self" in context:
+                ctx_lines.append(f"Your dice roll: {context['dice_self']}")
+            if "dice_opp" in context:
+                ctx_lines.append(f"Opponent dice roll: {context['dice_opp']}")
+            if "opp_last_action" in context and context["opp_last_action"] is not None:
+                ctx_lines.append(f"Opponent last action: {context['opp_last_action']}")
+
+        ctx_block = ""
+        if ctx_lines:
+            ctx_block = "Context:\n" + "\n".join(ctx_lines) + "\n\n"
+
+        instructions = (
+            "You are playing a one-shot Game of Chicken.\n"
+            "Choose exactly one action.\n"
+            "Valid actions: ESCALATE or YIELD.\n\n"
+            "Return ONLY valid JSON with exactly two keys: action and reason.\n"
+            "Do NOT output markdown or code fences.\n"
+            "Examples:\n"
+            "{\"action\":\"ESCALATE\",\"reason\":\"I will pressure the opponent.\"}\n"
+            "{\"action\":\"YIELD\",\"reason\":\"Mutual escalation is too costly.\"}\n"
         )
-        return persona + game_rules
 
+        return persona + ctx_block + instructions
+
+    # -----------------------------
+    # Model call (unchanged)
+    # -----------------------------
     def _query_model(
         self,
         *,
@@ -141,13 +203,6 @@ class Agent:
         max_tokens: int,
         seed: Optional[int] = None,
     ) -> str:
-        """
-        Calls Ollama via CLI.
-
-        Reproducibility note:
-          - We try to pass --seed if supported by your Ollama build.
-          - If not supported, we retry without --seed.
-        """
         base_cmd: List[str] = [
             "ollama",
             "run",
@@ -181,11 +236,3 @@ class Agent:
             return result.stdout.decode("utf-8").strip()
         except Exception:
             return None
-
-    def _parse_action(self, text: str) -> Optional[Action]:
-        t = (text or "").upper()
-        if "ESCALATE" in t:
-            return "ESCALATE"
-        if "YIELD" in t:
-            return "YIELD"
-        return None
