@@ -10,8 +10,11 @@ which generates strategic decisions ("ESCALATE" or "YIELD") during gameplay.
 
 The Agent class supports three conditioning modes:
     - neutral: no persona prompt, no adapter
-    - prompt: MBTI personality injected via system prompt
+    - prompt: MBTI personality injected via a fixed system prompt template
     - lora: personality embedded via fine-tuned adapter weights
+
+Persona prompts for the prompt-only condition are loaded from:
+    prompts/mbti_prompts.json
 
 This file contains no experiment orchestration or logging logic.
 It is responsible solely for personality conditioning and decision generation.
@@ -22,6 +25,8 @@ import random
 import subprocess
 from dataclasses import dataclass
 from typing import Literal, Optional, Dict, List
+
+from utils import get_mbti_system_prompt, get_prompt_version
 
 Action = Literal["ESCALATE", "YIELD"]
 Method = Literal["neutral", "prompt", "lora"]
@@ -61,6 +66,9 @@ class AgentConfig:
     temperature: float = 0.7
     max_tokens: int = 50
 
+    # NEW: fixed persona prompt set path for prompt-only condition (Step 1)
+    prompt_path: str = "prompts/mbti_prompts.json"
+
 
 class Agent:
     def __init__(self, cfg: AgentConfig):
@@ -71,6 +79,9 @@ class Agent:
         self.cfg = cfg
         self.traits = MBTI_DIMENSIONS[cfg.mbti]
         self.expected_bias = EXPECTED_ESCALATION_BIAS.get(cfg.mbti, 0.5)
+
+        # Useful metadata for logging / reproducibility
+        self.prompt_version = get_prompt_version(self.cfg.prompt_path) if self.cfg.method == "prompt" else None
 
     def act(
         self,
@@ -87,8 +98,6 @@ class Agent:
             else self.cfg.model_name
         )
 
-        # Derive a deterministic inference seed from the caller-provided RNG
-        # (so each game is reproducible if game_seed is reproducible).
         inference_seed = rng.randrange(2**31)
 
         raw = self._query_model(
@@ -105,13 +114,16 @@ class Agent:
         return action
 
     def _build_prompt(self, opponent: AgentConfig) -> str:
+        """
+        Prompt-only agents use a fixed, versioned MBTI persona template loaded
+        from prompts/mbti_prompts.json (Step 1). Neutral and LoRA agents do not
+        receive persona text here.
+        """
         persona = ""
         if self.cfg.method == "prompt":
-            persona = (
-                f"You are an AI agent with MBTI type {self.cfg.mbti}.\n"
-                f"Trait bits: {self.traits}\n"
-                "Behave consistently with this personality in strategic decisions.\n\n"
-            )
+            persona_text = get_mbti_system_prompt(self.cfg.mbti, self.cfg.prompt_path)
+            # Including the version in the prompt helps with debugging; the runner should also log it.
+            persona = f"{persona_text}\n(MBTI prompt set version: {get_prompt_version(self.cfg.prompt_path)})\n\n"
 
         game_rules = (
             "You are playing the Game of Chicken.\n"
@@ -133,7 +145,7 @@ class Agent:
         Calls Ollama via CLI.
 
         Reproducibility note:
-          - We *try* to pass --seed if supported by your Ollama build.
+          - We try to pass --seed if supported by your Ollama build.
           - If not supported, we retry without --seed.
         """
         base_cmd: List[str] = [
@@ -146,14 +158,12 @@ class Agent:
             str(max_tokens),
         ]
 
-        # Try with --seed first (if provided)
         if seed is not None:
             cmd_with_seed = base_cmd + ["--seed", str(seed)]
             out = self._run_ollama(cmd_with_seed, prompt)
             if out is not None:
                 return out
 
-        # Fallback: no seed
         out2 = self._run_ollama(base_cmd, prompt)
         return out2 if out2 is not None else ""
 
@@ -166,7 +176,6 @@ class Agent:
                 stderr=subprocess.PIPE,
                 timeout=30,
             )
-            # If an unknown flag (like --seed) is used, some builds return nonzero.
             if result.returncode != 0:
                 return None
             return result.stdout.decode("utf-8").strip()
