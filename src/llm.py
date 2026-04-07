@@ -59,7 +59,7 @@ class LLMAgent:
         # - agent. Be VERY strict that the LLM has to return one word, and one word only - the action it chose.
         # (Note: may want to include a rational and then an action, as if to say here are my thoughts on the game,
         # - and thus here is what I want to do)
-        agent_action_context_window = [SystemMessage(content=formatted_game_prompt), HumanMessage(content="Follow system instructions and return the chosen action.")]
+        agent_action_context_window = [SystemMessage(content=formatted_game_prompt), HumanMessage(content="Follow system instructions and ONLY RETURN THE CHOSEN ACTION AND NOTHING ELSE.")]
 
         # Get action from the LLM, and return it to the outside world.
         return {
