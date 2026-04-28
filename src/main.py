@@ -53,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=f"Output JSONL path. Defaults to {DEFAULT_RESULTS_DIR}/<label>_<timestamp>.jsonl",
     )
-    common.add_argument("--model-name", type=str, default="llama3:8b")
+    common.add_argument("--model-name", type=str, default="gemini-2.5-flash-lite")
     common.add_argument("--temperature", type=float, default=0.7)
     common.add_argument("--max-tokens", type=int, default=80)
     common.add_argument("--master-seed", type=int, default=42)

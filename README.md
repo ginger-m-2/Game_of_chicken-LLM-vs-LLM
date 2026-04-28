@@ -122,3 +122,16 @@ python src/main.py summarize data/results/true_persona_<timestamp>.jsonl
 The CLI performs preflight checks on startup (missing `GEMINI_API_KEY`, missing
 prompt files) and prints per-tournament progress with a ranked champion table
 at the end. Set `NO_COLOR=1` to disable ANSI colors.
+
+### Mock mode (no API calls)
+
+For offline smoke tests or when you don't want to spend API credits, force the
+deterministic mock backend:
+
+```bash
+MOCK_MODEL=1 python src/main.py run-many-tournaments --n-tournaments 2
+```
+
+The model adapter prints a clear warning whenever it falls back to the mock
+(missing key, auth failure, etc.) so mock results are never silently mistaken
+for real ones.
