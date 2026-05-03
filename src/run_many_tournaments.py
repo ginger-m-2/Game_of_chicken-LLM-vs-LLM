@@ -77,6 +77,9 @@ def decide_winner(
 
 def write_jsonl_record(handle, record: Dict[str, Any]) -> None:
     handle.write(json.dumps(record) + "\n")
+    # Flush after every record so the file is observable mid-run.
+    # Cheap relative to the cost of a Gemini call.
+    handle.flush()
 
 
 def build_agents(

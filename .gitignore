@@ -138,8 +138,9 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# Abstra debugging
+# Claude debugging
 .abstra/
+.claude/
 
 # Visual Studio Code
 #  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 

@@ -19,6 +19,7 @@ import json
 import os
 import random
 import sys
+import time
 from typing import Optional, Tuple
 
 from utils import _strip_code_fences, extract_first_json_object
@@ -32,6 +33,36 @@ _GEMINI_INIT_FAILED = False
 _FALLBACK_WARNED = False
 _SEEN_ERRORS: set[str] = set()
 _FATAL_ERROR_TOKENS = ("API_KEY_INVALID", "PERMISSION_DENIED", "UNAUTHENTICATED")
+
+# Throttling: track timestamp of the most recent Gemini call so we can
+# space subsequent calls to stay under the configured RPM cap. The free tier
+# of gemini-2.5-flash-lite is 10 RPM; default of 8 leaves headroom.
+_LAST_CALL_TIME: float = 0.0
+
+
+def _target_interval_seconds() -> float:
+    """Minimum seconds between Gemini calls, derived from GEMINI_RPM env var."""
+    try:
+        rpm = float(os.environ.get("GEMINI_RPM", "8"))
+    except ValueError:
+        rpm = 8.0
+    if rpm <= 0:
+        return 0.0
+    return 60.0 / rpm
+
+
+def _throttle() -> None:
+    """Sleep just long enough to stay under the configured RPM cap."""
+    global _LAST_CALL_TIME
+    interval = _target_interval_seconds()
+    if interval <= 0:
+        _LAST_CALL_TIME = time.monotonic()
+        return
+    now = time.monotonic()
+    elapsed = now - _LAST_CALL_TIME
+    if elapsed < interval:
+        time.sleep(interval - elapsed)
+    _LAST_CALL_TIME = time.monotonic()
 
 
 def _normalize_gemini_model(model_name: str) -> str:
@@ -165,6 +196,16 @@ def _mock_action(full_prompt: str, seed: int, temperature: float) -> Tuple[str, 
     return extract_action(raw), None
 
 
+# Shorter backoffs: per-minute Gemini quota resets every 60s, so a single
+# 60s sleep almost always recovers. Worst case is 30+60=90s per call.
+_RETRY_BACKOFFS = (30.0, 60.0)
+_RATE_LIMIT_TOKENS = ("RESOURCE_EXHAUSTED", "429")
+
+
+def _is_rate_limit_error(msg: str) -> bool:
+    return any(token in msg for token in _RATE_LIMIT_TOKENS)
+
+
 def _gemini_action(
     *,
     client,
@@ -177,37 +218,72 @@ def _gemini_action(
     """
     Call Gemini once. Returns (action, reason) on success, or None on failure
     so the caller can fall back to the mock.
+
+    On 429 RESOURCE_EXHAUSTED errors, sleeps with exponential backoff and
+    retries up to len(_RETRY_BACKOFFS) times before giving up.
     """
+    global _GEMINI_INIT_FAILED
+
     try:
         from google.genai import types
-
-        # Gemini's seed field is INT32; the tournament uses UINT32 seeds.
-        clamped_seed = seed % (2**31 - 1)
-        config = types.GenerateContentConfig(
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-            seed=clamped_seed,
-        )
-        response = client.models.generate_content(
-            model=_normalize_gemini_model(model_name),
-            contents=full_prompt,
-            config=config,
-        )
-        text = getattr(response, "text", None) or ""
-        action, reason, _ = parse_reasoned_response(text)
-        return action, reason
     except Exception as exc:
-        global _GEMINI_INIT_FAILED
-        msg = str(exc)
-        # Print each distinct error message at most once, with a short head.
-        head = msg.splitlines()[0][:200]
+        head = str(exc).splitlines()[0][:200]
         if head not in _SEEN_ERRORS:
             _SEEN_ERRORS.add(head)
-            print(f"[model_adapter] Gemini call failed: {head}", file=sys.stderr)
-        # Short-circuit the rest of the run on unrecoverable auth errors.
-        if any(token in msg for token in _FATAL_ERROR_TOKENS):
-            _GEMINI_INIT_FAILED = True
+            print(f"[model_adapter] google-genai SDK import failed: {head}", file=sys.stderr)
         return None
+
+    # Gemini's seed field is INT32; the tournament uses UINT32 seeds.
+    clamped_seed = seed % (2**31 - 1)
+    config = types.GenerateContentConfig(
+        temperature=temperature,
+        max_output_tokens=max_tokens,
+        seed=clamped_seed,
+    )
+    resolved_model = _normalize_gemini_model(model_name)
+
+    attempt = 0
+    while True:
+        _throttle()
+        try:
+            response = client.models.generate_content(
+                model=resolved_model,
+                contents=full_prompt,
+                config=config,
+            )
+            text = getattr(response, "text", None) or ""
+            action, reason, _ = parse_reasoned_response(text)
+            return action, reason
+        except Exception as exc:
+            msg = str(exc)
+            head = msg.splitlines()[0][:200]
+
+            if _is_rate_limit_error(msg) and attempt < len(_RETRY_BACKOFFS):
+                wait = _RETRY_BACKOFFS[attempt]
+                attempt += 1
+                if head not in _SEEN_ERRORS:
+                    _SEEN_ERRORS.add(head)
+                    print(
+                        f"[model_adapter] Rate limit hit ({head}). "
+                        f"Backing off {wait:.0f}s and retrying.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        f"[model_adapter] Rate limit hit again, retry {attempt}, "
+                        f"sleeping {wait:.0f}s.",
+                        file=sys.stderr,
+                    )
+                time.sleep(wait)
+                continue
+
+            # Non-rate-limit error, or retries exhausted.
+            if head not in _SEEN_ERRORS:
+                _SEEN_ERRORS.add(head)
+                print(f"[model_adapter] Gemini call failed: {head}", file=sys.stderr)
+            if any(token in msg for token in _FATAL_ERROR_TOKENS):
+                _GEMINI_INIT_FAILED = True
+            return None
 
 
 def generate_action(

@@ -74,6 +74,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validate environment and prompts, then exit without running the tournament.",
     )
+    common.add_argument(
+        "--rpm",
+        type=float,
+        default=None,
+        help=(
+            "Max Gemini requests per minute. Defaults to 8 (safe for the free tier's 10 RPM cap). "
+            "Set higher if you have paid quota; set to 0 to disable throttling."
+        ),
+    )
 
     p_many = subparsers.add_parser(
         "run-many-tournaments",
@@ -142,7 +151,7 @@ def preflight(prompts_dir: Path) -> bool:
 def make_progress_printer(total_for_condition: int):
     def _cb(current: int, total: int, condition: str, champion: str) -> None:
         line = progress_line(current, total_for_condition, condition, champion)
-        print(line)
+        print(line, flush=True)
 
     return _cb
 
@@ -151,6 +160,12 @@ def main() -> None:
     load_dotenv(override=True)
     parser = build_parser()
     args = parser.parse_args()
+
+    # Propagate --rpm to the model adapter via env var (read lazily there).
+    if getattr(args, "rpm", None) is not None:
+        import os as _os
+
+        _os.environ["GEMINI_RPM"] = str(args.rpm)
 
     if args.command == "summarize":
         import analyze_results
