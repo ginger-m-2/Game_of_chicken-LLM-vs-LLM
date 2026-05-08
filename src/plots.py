@@ -1,13 +1,5 @@
 """
 plots.py
-
-Generates the report figures from a results JSONL file:
-  1. drive_rate_by_dimension.png - DRIVE rate per MBTI dimension, grouped by
-     condition (4 panels: E/I, N/S, T/F, J/P; 2 bars per side x 3 conditions).
-  2. champion_frequencies.png    - champion counts per MBTI, grouped by
-     condition (one figure, grouped bars, 16 MBTIs on x-axis).
-  3. agent_drive_heatmap.png     - DRIVE rate for each (agent_mbti, condition)
-     cell, plotted as an annotated heatmap (16 rows x N conditions).
 """
 
 from __future__ import annotations
@@ -45,9 +37,7 @@ def _ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-# ---------------------------------------------------------------------------
 # Figure 1: DRIVE rate per MBTI dimension, grouped by condition
-# ---------------------------------------------------------------------------
 
 def plot_drive_rate_by_dimension(
     by_condition: Dict[str, List[dict]],
@@ -97,9 +87,7 @@ def plot_drive_rate_by_dimension(
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
 # Figure 2: Champion frequencies per MBTI, grouped by condition
-# ---------------------------------------------------------------------------
 
 def plot_champion_frequencies(
     champions: Dict[str, "object"],  # condition -> Counter
@@ -131,9 +119,7 @@ def plot_champion_frequencies(
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
 # Figure 3: DRIVE rate heatmap (16 MBTIs x N conditions)
-# ---------------------------------------------------------------------------
 
 def plot_agent_drive_heatmap(
     by_condition: Dict[str, List[dict]],
@@ -174,9 +160,7 @@ def plot_agent_drive_heatmap(
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
 # Entry
-# ---------------------------------------------------------------------------
 
 def make_all_plots(results_path: Path, output_dir: Path) -> List[Path]:
     rows = load_jsonl(results_path)

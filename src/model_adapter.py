@@ -186,23 +186,23 @@ The "action" field must be either "DRIVE" or "YIELD". Keep "reason" under 25 wor
 
 
 def _mock_action(full_prompt: str, seed: int, temperature: float) -> Tuple[str, Optional[str]]:
-    """Deterministic-ish smoke-test fallback. Returns (action, reason=None)."""
+    """Our determinsitc "model" using arithemtic. Returns (action, reason=None)."""
     rng = random.Random(seed)
-    score = sum(ord(c) for c in full_prompt[:300]) + seed + int(temperature * 100)
-    raw = "YIELD" if (score + rng.randint(0, 9)) % 2 == 0 else "DRIVE"
+    score = sum(ord(c) for c in full_prompt[:300]) + seed + int(temperature*100)
+    raw = "YIELD" if (score + rng.randint(0, 9))%2 == 0 else "DRIVE"
     return extract_action(raw), None
 
 
 # Backoffs for transient server-side errors. We try four times.
 _RETRY_BACKOFFS = (15.0, 30.0, 60.0, 120.0)
 _RETRYABLE_TOKENS = (
-    "RESOURCE_EXHAUSTED",  # 429 quota
+    "RESOURCE_EXHAUSTED", 
     "429",
-    "UNAVAILABLE",          # 503 server overloaded
+    "UNAVAILABLE",          # 503(server overloaded)
     "503",
-    "DEADLINE_EXCEEDED",    # 504 timeout
+    "DEADLINE_EXCEEDED",
     "504",
-    "INTERNAL",             # 500 server error
+    "INTERNAL",
     "500",
 )
 
