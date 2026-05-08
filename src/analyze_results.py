@@ -1,8 +1,5 @@
 """
 analyze_results.py
-
-Quantitative analysis of tournament results stored in JSONL form.
-
 Usage:
     python src/analyze_results.py results.jsonl
 
@@ -29,10 +26,10 @@ from typing import Dict, List, Optional, Tuple
 
 
 DIMENSION_LABELS = {
-    "E_I": ("E", "I"),  # extraversion vs introversion (position 0)
-    "N_S": ("N", "S"),  # intuition vs sensing (position 1)
-    "T_F": ("T", "F"),  # thinking vs feeling (position 2)
-    "J_P": ("J", "P"),  # judging vs perceiving (position 3)
+    "E_I": ("E", "I"),
+    "N_S": ("N", "S"),
+    "T_F": ("T", "F"),
+    "J_P": ("J", "P"),  
 }
 DIMENSION_POSITIONS = {"E_I": 0, "N_S": 1, "T_F": 2, "J_P": 3}
 
@@ -55,8 +52,7 @@ def safe_div(n: float, d: float) -> float:
     return 0.0 if d == 0 else n / d
 
 
-# ---------------------------------------------------------------------------
-# Per-condition aggregation primitives
+# per condition aggregation primitives
 # ---------------------------------------------------------------------------
 
 def matches_by_condition(rows: List[dict]) -> Dict[str, List[dict]]:

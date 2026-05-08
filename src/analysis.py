@@ -1,7 +1,7 @@
 """
 analysis.py
 
-Post-experiment analysis for Game of Chicken simulation results.
+Post-experiment analysis
 
 Supports:
     - Escalation/win-rate analysis per MBTI type

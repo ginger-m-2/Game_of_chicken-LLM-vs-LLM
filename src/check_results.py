@@ -1,12 +1,3 @@
-"""
-check_results.py
-
-Quick validator for tournament JSONL output.
-
-Usage:
-    python src/check_results.py results.jsonl
-"""
-
 from __future__ import annotations
 
 import json
