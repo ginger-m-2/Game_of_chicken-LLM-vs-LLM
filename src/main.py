@@ -1,20 +1,4 @@
-"""
-CLI entrypoint for the MBTI tournament project.
-
-Commands:
-- run-many-tournaments
-- run-all-conditions
-- summarize
-
-Examples:
-    python src/main.py run-many-tournaments \
-        --n-tournaments 10 \
-        --condition true_persona
-
-    python src/main.py run-all-conditions --n-tournaments 10
-
-    python src/main.py summarize data/results/true_persona_20260424-131200.jsonl
-"""
+"""CLI entry point: run tournaments, summarize results."""
 
 from __future__ import annotations
 
@@ -47,85 +31,36 @@ def build_parser() -> argparse.ArgumentParser:
 
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--n-tournaments", type=int, default=1)
-    common.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help=f"Output JSONL path. Defaults to {DEFAULT_RESULTS_DIR}/<label>_<timestamp>.jsonl",
-    )
+    common.add_argument("--output", type=Path, default=None, help="Output JSONL path.")
     common.add_argument("--model-name", type=str, default="gemini-2.5-flash-lite")
     common.add_argument("--temperature", type=float, default=0.7)
     common.add_argument("--max-tokens", type=int, default=256)
     common.add_argument("--master-seed", type=int, default=42)
-    common.add_argument(
-        "--prompts-dir",
-        type=Path,
-        default=Path("prompts"),
-        help="Directory containing MBTI persona prompt files and neutral.txt",
-    )
-    common.add_argument(
-        "--adapter-template",
-        type=str,
-        default=None,
-        help="Optional adapter template name/path used by your model wrapper.",
-    )
-    common.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Validate environment and prompts, then exit without running the tournament.",
-    )
-    common.add_argument(
-        "--rpm",
-        type=float,
-        default=None,
-        help=(
-            "Max Gemini requests per minute. Defaults to 8 (safe for the free tier's 10 RPM cap). "
-            "Set higher if you have paid quota; set to 0 to disable throttling."
-        ),
-    )
+    common.add_argument("--prompts-dir", type=Path, default=Path("prompts"))
+    common.add_argument("--adapter-template", type=str, default=None)
+    common.add_argument("--dry-run", action="store_true", help="Check setup and exit.")
+    common.add_argument("--rpm", type=float, default=None, help="Max requests/min (0 = no throttle).")
 
-    p_many = subparsers.add_parser(
-        "run-many-tournaments",
-        parents=[common],
-        help="Run one condition across many tournaments.",
-    )
+    p_many = subparsers.add_parser("run-many-tournaments", parents=[common])
     p_many.add_argument(
         "--condition",
         type=str,
         default="true_persona",
         choices=sorted(VALID_CONDITIONS),
-        help="Experimental condition to run.",
     )
 
-    p_all = subparsers.add_parser(
-        "run-all-conditions",
-        parents=[common],
-        help="Run true_persona, neutral, and shuffled_persona into one JSONL file.",
-    )
+    p_all = subparsers.add_parser("run-all-conditions", parents=[common])
     p_all.add_argument(
         "--conditions",
         nargs="+",
         default=["true_persona", "neutral", "shuffled_persona"],
         choices=sorted(VALID_CONDITIONS),
-        help="List of conditions to run.",
     )
 
-    p_summarize = subparsers.add_parser(
-        "summarize",
-        help="Summarize a results JSONL file (wraps analyze_results).",
-    )
-    p_summarize.add_argument("results", type=Path, help="Path to a results JSONL file.")
-    p_summarize.add_argument(
-        "--plots",
-        action="store_true",
-        help="Also save report figures next to the results file under data/analysis/<basename>/",
-    )
-    p_summarize.add_argument(
-        "--plots-dir",
-        type=Path,
-        default=None,
-        help="Override the output directory for figures. Defaults to data/analysis/<results basename>/",
-    )
+    p_summarize = subparsers.add_parser("summarize")
+    p_summarize.add_argument("results", type=Path)
+    p_summarize.add_argument("--plots", action="store_true", help="Also save figures.")
+    p_summarize.add_argument("--plots-dir", type=Path, default=None)
 
     return parser
 
@@ -161,10 +96,8 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    # Propagate --rpm to the model adapter via env var (read lazily there).
     if getattr(args, "rpm", None) is not None:
         import os as _os
-
         _os.environ["GEMINI_RPM"] = str(args.rpm)
 
     if args.command == "summarize":

@@ -53,7 +53,6 @@ def safe_div(n: float, d: float) -> float:
 
 
 # per condition aggregation primitives
-# ---------------------------------------------------------------------------
 
 def matches_by_condition(rows: List[dict]) -> Dict[str, List[dict]]:
     out: Dict[str, List[dict]] = defaultdict(list)
@@ -71,9 +70,7 @@ def champions_by_condition(rows: List[dict]) -> Dict[str, Counter]:
     return dict(out)
 
 
-# ---------------------------------------------------------------------------
 # 1. Champion frequency
-# ---------------------------------------------------------------------------
 
 def section_champion_frequency(champions: Dict[str, Counter]) -> str:
     lines = ["=== Champion Frequency by Condition ==="]
@@ -87,9 +84,7 @@ def section_champion_frequency(champions: Dict[str, Counter]) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
 # 2 & 3. Action frequency, DRIVE rate, mutual-DRIVE rate
-# ---------------------------------------------------------------------------
 
 def drive_yield_counts(matches: List[dict]) -> Tuple[int, int]:
     drive = 0
@@ -124,21 +119,10 @@ def section_action_summary(by_condition: Dict[str, List[dict]]) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
 # 4. Chi-square: action x condition for true_persona vs neutral
-# ---------------------------------------------------------------------------
 
 def chi_square_2x2(a: int, b: int, c: int, d: int) -> Tuple[float, float, int]:
-    """
-    2x2 chi-square test of independence.
-    Table:
-        [[a, b],
-         [c, d]]
-    Returns (chi2, p_value, df). df is always 1 here.
-
-    Uses Wilson-Hilferty approximation for the survival function of chi^2_1
-    so we don't take a hard scipy dependency just for this.
-    """
+    """2x2 chi-square test. Returns (chi2, p, df=1)."""
     total = a + b + c + d
     if total == 0:
         return 0.0, 1.0, 1
@@ -164,10 +148,8 @@ def chi_square_2x2(a: int, b: int, c: int, d: int) -> Tuple[float, float, int]:
 
 
 def try_scipy_chi2(table: List[List[int]]) -> Optional[Tuple[float, float, int]]:
-    """Use scipy if available for a more general test; otherwise return None."""
     try:
-        from scipy.stats import chi2_contingency  # type: ignore
-
+        from scipy.stats import chi2_contingency
         chi2, p, dof, _ = chi2_contingency(table, correction=False)
         return float(chi2), float(p), int(dof)
     except Exception:
@@ -202,9 +184,7 @@ def section_chi_square(by_condition: Dict[str, List[dict]]) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
 # 5. Cross-tournament variance of per-agent DRIVE rate
-# ---------------------------------------------------------------------------
 
 def per_agent_per_tournament_drive_rates(
     matches: List[dict],
@@ -254,9 +234,7 @@ def section_consistency(by_condition: Dict[str, List[dict]]) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
 # 6. MBTI dimension breakdown
-# ---------------------------------------------------------------------------
 
 def per_agent_action_counts(
     matches: List[dict],
@@ -322,9 +300,7 @@ def section_dimension_breakdown(by_condition: Dict[str, List[dict]]) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
 # 7. Shuffled condition: prompt vs identity
-# ---------------------------------------------------------------------------
 
 def section_shuffled_prompt_vs_identity(by_condition: Dict[str, List[dict]]) -> str:
     matches = by_condition.get("shuffled_persona", [])
@@ -375,9 +351,7 @@ def section_shuffled_prompt_vs_identity(by_condition: Dict[str, List[dict]]) -> 
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
 # 8. Prompt assignment summary (sanity check)
-# ---------------------------------------------------------------------------
 
 def section_prompt_assignment(by_condition: Dict[str, List[dict]]) -> str:
     lines = ["=== Prompt Assignment Sanity Check ==="]
@@ -401,9 +375,7 @@ def section_prompt_assignment(by_condition: Dict[str, List[dict]]) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
 # Reasoning-trace coverage
-# ---------------------------------------------------------------------------
 
 def section_reasoning_coverage(by_condition: Dict[str, List[dict]]) -> str:
     lines = ["=== Reasoning Trace Coverage ==="]
@@ -426,9 +398,7 @@ def section_reasoning_coverage(by_condition: Dict[str, List[dict]]) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
 # Entry point
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     if len(sys.argv) != 2:

@@ -1,12 +1,4 @@
-"""
-Utilities for MBTI experimental conditions.
-
-Conditions:
-- true_persona: each MBTI agent gets its own intended persona prompt
-- neutral: every agent gets the same neutral non-personality prompt
-- shuffled_persona: each MBTI agent gets a different MBTI persona prompt,
-  assigned via a derangement so no agent keeps its own prompt
-"""
+"""Resolves persona prompts for the three experimental conditions."""
 
 from __future__ import annotations
 
@@ -40,25 +32,15 @@ def load_prompt_text(prompt_path: Path) -> str:
 
 
 def load_persona_prompt(prompts_dir: Path, mbti: str) -> str:
-    """
-    Loads prompts/<MBTI>.txt
-    """
-    prompt_path = prompts_dir / f"{mbti}.txt"
-    return load_prompt_text(prompt_path)
+    return load_prompt_text(prompts_dir / f"{mbti}.txt")
 
 
 def load_neutral_prompt(prompts_dir: Path) -> str:
-    """
-    Loads prompts/neutral.txt
-    """
-    prompt_path = prompts_dir / "neutral.txt"
-    return load_prompt_text(prompt_path)
+    return load_prompt_text(prompts_dir / "neutral.txt")
 
 
 def make_derangement(items: list[str], rng: random.Random) -> Dict[str, str]:
-    """
-    Returns a derangement mapping where no item maps to itself.
-    """
+    """Permutation where no item maps to itself."""
     if len(items) < 2:
         raise ValueError("Need at least 2 items to create a derangement.")
 
@@ -70,12 +52,7 @@ def make_derangement(items: list[str], rng: random.Random) -> Dict[str, str]:
 
 
 def build_shuffle_map(condition: str, rng: random.Random) -> Optional[Dict[str, str]]:
-    """
-    Returns a tournament-level shuffle map for shuffled_persona condition,
-    otherwise None.
-    """
     validate_condition(condition)
-
     if condition == "shuffled_persona":
         return make_derangement(MBTI_TYPES, rng)
     return None
@@ -88,13 +65,7 @@ def resolve_persona(
     prompts_dir: Path,
     shuffle_map: Optional[Dict[str, str]] = None,
 ) -> Tuple[str, Optional[str]]:
-    """
-    Returns:
-        prompt_text, prompt_mbti
-
-    For neutral:
-        prompt_mbti = None
-    """
+    """Returns (prompt_text, prompt_mbti). prompt_mbti is None for neutral."""
     validate_condition(condition)
 
     if condition == "true_persona":

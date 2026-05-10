@@ -1,21 +1,4 @@
-# src/utils.py
-
-"""
-utils.py
-
-Shared utilities
-
-Responsibilities:
-- Load and cache the fixed MBTI persona prompt set from prompts/mbti_prompts.json.
-- Provide helper functions to fetch:
-    - the system prompt template for a given MBTI type
-    - the prompt-set version (for reproducibility and logging)
-- Provide machine-readable decision parsing helpers used by agent.py:
-    - extract the first JSON object from model output (brace balancing)
-    - parse and validate decision JSON with required keys ("action", "reason")
-- Define the Decision dataclass used for structured logging and debugging.
-- Does NOT call language models directly.
-"""
+"""Prompt loading and JSON parsing helpers."""
 
 from __future__ import annotations
 
@@ -25,10 +8,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 
-
-# -----------------------------
-# Step 1: Persona prompt loading
-# -----------------------------
 
 @lru_cache(maxsize=1)
 def load_mbti_prompt_file(path: str | Path = "prompts/mbti_prompts.json") -> Dict:
@@ -56,17 +35,13 @@ def get_prompt_version(path: str | Path = "prompts/mbti_prompts.json") -> str:
     return str(meta.get("version", "unknown"))
 
 
-# -----------------------------
-# Step 2: Machine-readable decisions
-# -----------------------------
-
 @dataclass(frozen=True)
 class Decision:
-    action: str                 # "ESCALATE" or "YIELD"
-    reason: str                 # short explanation
-    format_ok: bool             # whether we parsed valid JSON cleanly
-    raw_text: str               # raw model output (audit/debug)
-    used_fallback: bool         # whether fallback action was used
+    action: str
+    reason: str
+    format_ok: bool
+    raw_text: str
+    used_fallback: bool
 
 
 def _strip_code_fences(s: str) -> str:
@@ -79,10 +54,7 @@ def _strip_code_fences(s: str) -> str:
 
 
 def extract_first_json_object(text: str) -> Optional[str]:
-    """
-    Extract the first balanced {...} JSON object from text using brace balancing.
-    Returns None if no balanced object is found.
-    """
+    """First balanced {...} block, or None."""
     if not text:
         return None
     s = text
@@ -102,11 +74,7 @@ def extract_first_json_object(text: str) -> Optional[str]:
 
 
 def parse_decision_json(raw_text: str) -> Tuple[Optional[str], Optional[str], bool]:
-    """
-    Parse JSON of the form:
-      {"action":"ESCALATE"|"YIELD","reason":"..."}
-    Returns (action, reason, ok).
-    """
+    """Parse {action, reason} JSON. Returns (action, reason, ok)."""
     if not raw_text:
         return None, None, False
 

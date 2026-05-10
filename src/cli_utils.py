@@ -1,8 +1,4 @@
-"""
-cli_utils.py
-
-Shared helpers for the CLI experience
-"""
+"""CLI helpers: colors, preflight checks, summary table."""
 
 from __future__ import annotations
 
@@ -50,9 +46,7 @@ REQUIRED_ENV_VARS = ("GEMINI_API_KEY",)
 
 
 def validate_setup(prompts_dir: Path) -> list[str]:
-    """
-    Returns a list of human-readable problems. Empty list means all checks passed.
-    """
+    """Returns a list of problems; empty means all good."""
     problems: list[str] = []
 
     for var in REQUIRED_ENV_VARS:
@@ -94,10 +88,7 @@ def default_output_path(base_dir: Path, label: str) -> Path:
 
 
 def format_champion_table(counts: Counter, title: Optional[str] = None) -> str:
-    """
-    Render champion counts as a ranked table. Keys may be either plain MBTI strings
-    (single-condition runs) or (condition, mbti) tuples (all-conditions runs).
-    """
+    """Render champion counts as a ranked table."""
     if not counts:
         return color("(no results)", "dim")
 

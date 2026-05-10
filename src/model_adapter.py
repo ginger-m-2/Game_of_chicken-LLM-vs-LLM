@@ -1,17 +1,4 @@
-"""
-model_adapter.py
-
-Connects model inference to the tournament runner.
-
-Behavior:
-- If GEMINI_API_KEY is set, calls Gemini via google-genai and parses the
-  response into a normalized action.
-- If the key is missing or the SDK call fails, falls back to a deterministic
-  mock so the pipeline can still run for smoke tests (BUT warning is printed
-  once so this isnt unnoticed)
-
-The mock can be forced explicitly via MOCK_MODEL=1 
-"""
+"""Calls Gemini, falls back to a mock if the key is missing or calls fail."""
 
 from __future__ import annotations
 
@@ -34,14 +21,10 @@ _FALLBACK_WARNED = False
 _SEEN_ERRORS: set[str] = set()
 _FATAL_ERROR_TOKENS = ("API_KEY_INVALID", "PERMISSION_DENIED", "UNAUTHENTICATED")
 
-# Throttling: track timestamp of the most recent Gemini call so we can
-# space subsequent calls to stay under the configured RPM cap. The free tier
-# of gemini-2.5-flash-lite is 10 RPM; default of 8 leaves headroom.
 _LAST_CALL_TIME: float = 0.0
 
 
 def _target_interval_seconds() -> float:
-    """Minimum seconds between Gemini calls, derived from GEMINI_RPM env var."""
     try:
         rpm = float(os.environ.get("GEMINI_RPM", "8"))
     except ValueError:
@@ -52,7 +35,6 @@ def _target_interval_seconds() -> float:
 
 
 def _throttle() -> None:
-    """Sleep just long enough to stay under the configured RPM cap."""
     global _LAST_CALL_TIME
     interval = _target_interval_seconds()
     if interval <= 0:
@@ -74,9 +56,6 @@ def _normalize_gemini_model(model_name: str) -> str:
 
 
 def _get_gemini_client():
-    """
-    Returns None if initialization fails (missing key, missing SDK, etc.).
-    """
     global _GEMINI_CLIENT, _GEMINI_INIT_FAILED
 
     if _GEMINI_CLIENT is not None:
@@ -94,7 +73,7 @@ def _get_gemini_client():
 
         _GEMINI_CLIENT = genai.Client(api_key=api_key)
         return _GEMINI_CLIENT
-    except Exception as exc:  # ImportError, auth errors, etc.
+    except Exception as exc:
         _GEMINI_INIT_FAILED = True
         print(f"[model_adapter] Gemini client init failed: {exc}", file=sys.stderr)
         return None
@@ -114,10 +93,7 @@ def _warn_fallback_once(reason: str) -> None:
 
 
 def extract_action(raw_text: str) -> str:
-    """
-    Normalize model output into one of the expected actions.
-    Defaults to YIELD if no recognized token is present.
-    """
+    """Pull DRIVE or YIELD out of raw text. Defaults to YIELD."""
     text = (raw_text or "").strip().upper()
 
     for action in VALID_ACTIONS:
@@ -128,14 +104,7 @@ def extract_action(raw_text: str) -> str:
 
 
 def parse_reasoned_response(raw_text: str) -> Tuple[str, Optional[str], bool]:
-    """
-    Try to parse the model's response as {"action": ..., "reason": ...}.
-
-    Returns (action, reason, parsed_json_ok).
-    - If JSON parses cleanly with a valid action, returns (action, reason, True).
-    - If JSON fails or action is invalid, falls back to substring extraction
-      and returns (action, None, False).
-    """
+    """Parse {"action": ..., "reason": ...}. Returns (action, reason, parsed_ok)."""
     if not raw_text:
         return "YIELD", None, False
 
@@ -153,7 +122,6 @@ def parse_reasoned_response(raw_text: str) -> Tuple[str, Optional[str], bool]:
         except Exception:
             pass
 
-    # Fallback: substring scan, no reason captured.
     return extract_action(raw_text), None, False
 
 
@@ -162,9 +130,6 @@ def build_game_prompt(
     persona_prompt: str,
     opponent_last_action: Optional[str],
 ) -> str:
-    """
-    Compose the full prompt sent to the model.
-    """
     opp = opponent_last_action if opponent_last_action is not None else "NONE"
 
     return f"""{persona_prompt}
@@ -193,17 +158,12 @@ def _mock_action(full_prompt: str, seed: int, temperature: float) -> Tuple[str, 
     return extract_action(raw), None
 
 
-# Backoffs for transient server-side errors. We try four times.
 _RETRY_BACKOFFS = (15.0, 30.0, 60.0, 120.0)
 _RETRYABLE_TOKENS = (
-    "RESOURCE_EXHAUSTED", 
-    "429",
-    "UNAVAILABLE",          # 503(server overloaded)
-    "503",
-    "DEADLINE_EXCEEDED",
-    "504",
-    "INTERNAL",
-    "500",
+    "RESOURCE_EXHAUSTED", "429",
+    "UNAVAILABLE", "503",
+    "DEADLINE_EXCEEDED", "504",
+    "INTERNAL", "500",
 )
 
 
@@ -220,13 +180,6 @@ def _gemini_action(
     max_tokens: int,
     seed: int,
 ) -> Optional[Tuple[str, Optional[str]]]:
-    """
-    Call Gemini once. Returns (action, reason) on success, or None on failure
-    so the caller can fall back to the mock.
-
-    On 429 RESOURCE_EXHAUSTED errors, sleeps with exponential backoff and
-    retries up to len(_RETRY_BACKOFFS) times before giving up.
-    """
     global _GEMINI_INIT_FAILED
 
     try:
@@ -238,13 +191,10 @@ def _gemini_action(
             print(f"[model_adapter] google-genai SDK import failed: {head}", file=sys.stderr)
         return None
 
-    # Gemini's seed field is INT32; the tournament uses UINT32 seeds.
+    # Gemini seed is INT32, tournament seeds are UINT32
     clamped_seed = seed % (2**31 - 1)
 
-    # Gemini 2.5 models default to a hidden "thinking" budget that consumes
-    # max_output_tokens internally before producing any visible text, which
-    # truncates short JSON responses. Disable thinking when the SDK supports
-    # it; older SDKs / non-2.5 models silently ignore the parameter.
+    # Disable Gemini 2.5 "thinking" tokens so they don't eat max_output_tokens
     config_kwargs = {
         "temperature": temperature,
         "max_output_tokens": max_tokens,
@@ -312,15 +262,7 @@ def generate_action(
     max_tokens: int,
     adapter_template: Optional[str] = None,
 ) -> Tuple[str, Optional[str]]:
-    """
-    Main model hook used by the tournament runner.
-
-    Returns (action, reason) where:
-      - action is a normalized action string ('DRIVE' or 'YIELD')
-      - reason is the model's stated reasoning (str) or None when the model
-        did not return a parseable JSON response (e.g. mock fallback or
-        free-form output that failed JSON parsing)
-    """
+    """Returns (action, reason). Reason is None if mock or unparseable."""
     full_prompt = build_game_prompt(
         persona_prompt=persona_prompt,
         opponent_last_action=opponent_last_action,

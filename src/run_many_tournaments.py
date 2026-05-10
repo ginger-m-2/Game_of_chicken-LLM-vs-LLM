@@ -1,16 +1,4 @@
-"""
-run_many_tournaments.py
-
-Runs many MBTI tournaments with support for:
-- true_persona
-- neutral
-- shuffled_persona
-
-Writes JSONL records:
-- meta
-- match
-- champion
-"""
+"""Runs MBTI tournaments and writes JSONL meta/match/champion records."""
 
 from __future__ import annotations
 
@@ -60,25 +48,16 @@ def decide_winner(
     b_action: str,
     rng: random.Random,
 ) -> str:
-    """
-    Match winner logic.
-
-    Current rule:
-    - DRIVE beats YIELD
-    - same action => random tiebreak
-    """
+    """DRIVE beats YIELD; ties broken randomly."""
     if a_action == "DRIVE" and b_action == "YIELD":
         return "a"
     if b_action == "DRIVE" and a_action == "YIELD":
         return "b"
-
     return "a" if rng.randint(0, 1) == 0 else "b"
 
 
 def write_jsonl_record(handle, record: Dict[str, Any]) -> None:
     handle.write(json.dumps(record) + "\n")
-    # Flush after every record so the file is observable mid-run.
-    # Cheap relative to the cost of a Gemini call.
     handle.flush()
 
 
