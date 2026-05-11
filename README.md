@@ -60,7 +60,7 @@ src/
   chicken.py                 # Game of Chicken engine and payoff logic
   mbti_conditions.py         # Condition resolution (true_persona / neutral / shuffled_persona)
   run_many_tournaments.py    # Tournament orchestration and multi-run driver
-  analyze_results.py         # Quantitative analysis (chi-square, variance, dimensions)
+  analyze_results.py         # Quantitative analysis like chi-square, variance, dimensions
   plots.py                   # matplotlib report figures
   analysis.py                # Statistical analysis helpers
   check_results.py           # Sanity checks on logged results
@@ -94,14 +94,14 @@ cd Game_of_chicken-LLM-vs-LLM
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure the Gemini API key (primary backend: gemini-2.5-flash-lite)
+# Configure the Gemini API key
 echo "GEMINI_API_KEY=your_key_here" > .env
 ```
 
 ## Running Experiments
 
 ```bash
-# Validate setup (API key + prompt files) without running
+# Validate setup (API key and prompt files) without running
 python src/main.py run-many-tournaments --n-tournaments 10 --dry-run
 
 # Run one condition across many tournaments

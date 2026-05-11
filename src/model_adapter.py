@@ -49,7 +49,7 @@ def _throttle() -> None:
 
 def _normalize_gemini_model(model_name: str) -> str:
     if not model_name or not model_name.lower().startswith(("gemini", "models/gemini")):
-        return "gemini-2.5-flash-lite"
+        return "gemini-2.5-flash"
     if model_name.startswith("models/"):
         return model_name.split("/", 1)[1]
     return model_name

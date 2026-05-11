@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--n-tournaments", type=int, default=1)
     common.add_argument("--output", type=Path, default=None, help="Output JSONL path.")
-    common.add_argument("--model-name", type=str, default="gemini-2.5-flash-lite")
+    common.add_argument("--model-name", type=str, default="gemini-2.5-flash")
     common.add_argument("--temperature", type=float, default=0.7)
     common.add_argument("--max-tokens", type=int, default=256)
     common.add_argument("--master-seed", type=int, default=42)

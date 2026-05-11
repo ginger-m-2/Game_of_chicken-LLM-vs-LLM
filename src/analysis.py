@@ -1,20 +1,4 @@
-"""
-analysis.py
-
-Post-experiment analysis
-
-Supports:
-    - Escalation/win-rate analysis per MBTI type
-    - Trait-dimension comparisons (E/I, S/N, T/F, J/P)
-    - Statistical tests across conditions and dimensions
-    - Champion frequency analysis
-    - Reasoning trace keyword analysis (if reason field present)
-    - Visualizations saved to data/analysis/
-
-Usage:
-    python src/analysis.py
-    python src/analysis.py --out-dir data/analysis
-"""
+"""Post-experiment analysis: per-MBTI stats, dimension comparisons, plots."""
 
 from __future__ import annotations
 
@@ -33,13 +17,8 @@ try:
     HAS_SCIPY = True
 except ImportError:
     HAS_SCIPY = False
-    print("WARNING: scipy not installed — chi-squared tests will be skipped.")
-    print("         Run: pip install scipy\n")
+    print("scipy not installed; chi-squared tests will be skipped (pip install scipy)")
 
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
 MBTI_TYPES = [
     "INTJ", "INTP", "ENTJ", "ENTP",
@@ -51,7 +30,6 @@ MBTI_TYPES = [
 DIMENSIONS = ["EI", "SN", "TF", "JP"]
 DIM_LABELS = {"EI": "E / I", "SN": "S / N", "TF": "T / F", "JP": "J / P"}
 
-# Escalation keywords for reasoning trace analysis
 ESCALATION_KEYWORDS = [
     "escalate", "drive", "aggressive", "dominate", "win", "force",
     "risk", "bluff", "bold", "pressure", "threat", "challenge",
@@ -61,7 +39,6 @@ YIELD_KEYWORDS = [
     "cautious", "rational", "worst", "catastrophe", "swerve",
 ]
 
-# Default file paths (tries these first, then fallbacks)
 DEFAULT_FILES = {
     "true_persona":     "true_test.jsonl",
     "neutral":          "neutral_test.jsonl",
@@ -73,7 +50,6 @@ FALLBACK_FILES = {
 }
 
 def load_jsonl(path: str) -> pd.DataFrame:
-    """Load all records from a JSONL file into a DataFrame."""
     records = []
     with open(path, "r") as f:
         for line in f:
@@ -84,12 +60,10 @@ def load_jsonl(path: str) -> pd.DataFrame:
 
 
 def _is_escalate(action: str) -> bool:
-    """Normalize DRIVE/ESCALATE → True, YIELD → False."""
     return str(action).upper() in ("ESCALATE", "DRIVE")
 
 
 def _payoff(esc_a: bool, esc_b: bool) -> tuple[int, int]:
-    """Return (payoff_a, payoff_b) for a match."""
     if esc_a and esc_b:
         return (-10, -10)
     if esc_a:
@@ -100,13 +74,7 @@ def _payoff(esc_a: bool, esc_b: bool) -> tuple[int, int]:
 
 
 def load_matches(path: str) -> pd.DataFrame:
-    """
-    Load match records from a JSONL file, computing derived columns:
-      - escalate_a / escalate_b  (bool)
-      - payoff_a / payoff_b      (int, computed from actions)
-      - a_EI, a_SN, a_TF, a_JP  (MBTI dimension poles for agent A)
-      - b_EI, b_SN, b_TF, b_JP  (MBTI dimension poles for agent B)
-    """
+    """Load matches and add escalate/payoff/dimension columns."""
     df = load_jsonl(path)
     matches = df[df["record_type"] == "match"].copy().reset_index(drop=True)
 
@@ -129,13 +97,11 @@ def load_matches(path: str) -> pd.DataFrame:
 
 
 def load_champions(path: str) -> pd.DataFrame:
-    """Load only champion records from a JSONL file."""
     df = load_jsonl(path)
     return df[df["record_type"] == "champion"].copy().reset_index(drop=True)
 
 
 def resolve_paths() -> dict[str, str]:
-    """Find available result files and return {condition: path}."""
     resolved = {}
     for cond, path in DEFAULT_FILES.items():
         if Path(path).exists():
@@ -145,12 +111,7 @@ def resolve_paths() -> dict[str, str]:
     return resolved
 
 
-# ---------------------------------------------------------------------------
-# Per-MBTI metrics
-# ---------------------------------------------------------------------------
-
 def escalation_by_mbti(df: pd.DataFrame) -> pd.DataFrame:
-    """Escalation rate per MBTI type."""
     a = df[["a_mbti", "escalate_a"]].rename(columns={"a_mbti": "mbti", "escalate_a": "escalated"})
     b = df[["b_mbti", "escalate_b"]].rename(columns={"b_mbti": "mbti", "escalate_b": "escalated"})
     long = pd.concat([a, b], ignore_index=True)
@@ -164,7 +125,6 @@ def escalation_by_mbti(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def payoff_by_mbti(df: pd.DataFrame) -> pd.DataFrame:
-    """Mean payoff per MBTI type."""
     a = df[["a_mbti", "payoff_a"]].rename(columns={"a_mbti": "mbti", "payoff_a": "payoff"})
     b = df[["b_mbti", "payoff_b"]].rename(columns={"b_mbti": "mbti", "payoff_b": "payoff"})
     long = pd.concat([a, b], ignore_index=True)
@@ -177,7 +137,6 @@ def payoff_by_mbti(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def win_rate_by_mbti(df: pd.DataFrame) -> pd.DataFrame:
-    """Win rate (wins / appearances) per MBTI type."""
     app_a = df["a_mbti"].value_counts()
     app_b = df["b_mbti"].value_counts()
     appearances = app_a.add(app_b, fill_value=0).rename("appearances")
@@ -188,15 +147,8 @@ def win_rate_by_mbti(df: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values("win_rate", ascending=False).reset_index(drop=True)
 
 
-# ---------------------------------------------------------------------------
-# MBTI dimension analysis
-# ---------------------------------------------------------------------------
-
 def escalation_by_dimension(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """
-    For each MBTI dimension (EI, SN, TF, JP), compute escalation rate
-    for each pole (e.g., E vs I).
-    """
+    """Escalation rate per pole for each dimension."""
     results = {}
     for dim in DIMENSIONS:
         a = df[[f"a_{dim}", "escalate_a"]].rename(
@@ -217,10 +169,7 @@ def escalation_by_dimension(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
 
 def win_rate_by_dimension(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """
-    For each MBTI dimension, compute win rate for each pole.
-    A win is counted when the agent with that pole won its match.
-    """
+    """Win rate per pole for each dimension."""
     results = {}
     for dim in DIMENSIONS:
         rows = []
@@ -242,10 +191,7 @@ def win_rate_by_dimension(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
 
 def dimension_chi_squared(df: pd.DataFrame, label: str = "") -> pd.DataFrame:
-    """
-    For each MBTI dimension, chi-squared test of whether escalation rate
-    differs significantly between the two poles.
-    """
+    """Chi-squared test per dimension on the two poles' escalation rates."""
     if not HAS_SCIPY:
         print("  Skipped (scipy not installed).")
         return pd.DataFrame()
@@ -276,12 +222,7 @@ def dimension_chi_squared(df: pd.DataFrame, label: str = "") -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ---------------------------------------------------------------------------
-# Condition comparison
-# ---------------------------------------------------------------------------
-
 def compare_conditions(dfs: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Top-level metrics table across all conditions."""
     rows = []
     for cond, df in dfs.items():
         n = len(df)
@@ -299,7 +240,6 @@ def compare_conditions(dfs: dict[str, pd.DataFrame]) -> pd.DataFrame:
 
 
 def condition_pairwise_chi_squared(dfs: dict[str, pd.DataFrame]) -> None:
-    """Chi-squared test for escalation rate between each pair of conditions."""
     if not HAS_SCIPY:
         print("  Skipped (scipy not installed).")
         return
@@ -314,12 +254,11 @@ def condition_pairwise_chi_squared(dfs: dict[str, pd.DataFrame]) -> None:
                 [int(esc2.sum()), int(len(esc2) - esc2.sum())],
             ])
             chi2, p, _, _ = scipy_stats.chi2_contingency(ct, correction=False)
-            sig = "** SIGNIFICANT **" if p < 0.05 else "not significant"
+            sig = "significant" if p < 0.05 else "ns"
             print(f"  {c1} vs {c2}: chi2={chi2:.3f}, p={p:.4f}  ({sig})")
 
 
 def champion_distribution(champ_dfs: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Champion frequency (count + rate) per MBTI type per condition."""
     rows = []
     for cond, df in champ_dfs.items():
         counts = df["champion_mbti"].value_counts()
@@ -338,15 +277,8 @@ def champion_distribution(champ_dfs: dict[str, pd.DataFrame]) -> pd.DataFrame:
     )
 
 
-# ---------------------------------------------------------------------------
-# Reasoning trace analysis
-# ---------------------------------------------------------------------------
-
 def reasoning_trace_analysis(df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """
-    Keyword analysis of 'reason_a' / 'reason_b' fields (if present).
-    Returns None if neither field exists in the DataFrame.
-    """
+    """Keyword counts on reason_a / reason_b. Returns None if not logged."""
     has_a = "reason_a" in df.columns
     has_b = "reason_b" in df.columns
     if not has_a and not has_b:
@@ -389,10 +321,6 @@ def reasoning_trace_analysis(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     )
 
 
-# ---------------------------------------------------------------------------
-# Visualizations
-# ---------------------------------------------------------------------------
-
 def _save_or_show(fig: plt.Figure, out_dir: Optional[str], filename: str) -> None:
     if out_dir:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -405,7 +333,6 @@ def _save_or_show(fig: plt.Figure, out_dir: Optional[str], filename: str) -> Non
 
 
 def plot_escalation_by_mbti(dfs: dict[str, pd.DataFrame], out_dir: Optional[str] = None) -> None:
-    """Grouped bar chart: escalation rate per MBTI type, one group per condition."""
     all_mbti = sorted(set(
         m for df in dfs.values()
         for m in pd.concat([df["a_mbti"], df["b_mbti"]]).unique()
@@ -432,7 +359,6 @@ def plot_escalation_by_mbti(dfs: dict[str, pd.DataFrame], out_dir: Optional[str]
 
 
 def plot_dimension_escalation(dfs: dict[str, pd.DataFrame], out_dir: Optional[str] = None) -> None:
-    """2×2 subplot: escalation rate per dimension pole per condition."""
     conditions = list(dfs.keys())
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
 
@@ -463,7 +389,6 @@ def plot_dimension_escalation(dfs: dict[str, pd.DataFrame], out_dir: Optional[st
 
 
 def plot_win_rate_by_dimension(dfs: dict[str, pd.DataFrame], out_dir: Optional[str] = None) -> None:
-    """2×2 subplot: win rate per dimension pole per condition."""
     conditions = list(dfs.keys())
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
 
@@ -494,7 +419,6 @@ def plot_win_rate_by_dimension(dfs: dict[str, pd.DataFrame], out_dir: Optional[s
 
 
 def plot_champion_heatmap(champ_dfs: dict[str, pd.DataFrame], out_dir: Optional[str] = None) -> None:
-    """Heatmap: champion rate by MBTI type (rows) and condition (columns)."""
     all_mbti = sorted(set(m for df in champ_dfs.values() for m in df["champion_mbti"].unique()))
     conditions = list(champ_dfs.keys())
     data = np.zeros((len(all_mbti), len(conditions)))
@@ -518,7 +442,6 @@ def plot_champion_heatmap(champ_dfs: dict[str, pd.DataFrame], out_dir: Optional[
 
 
 def plot_payoff_by_mbti(dfs: dict[str, pd.DataFrame], out_dir: Optional[str] = None) -> None:
-    """Grouped bar chart: mean payoff per MBTI type per condition."""
     all_mbti = sorted(set(
         m for df in dfs.values()
         for m in pd.concat([df["a_mbti"], df["b_mbti"]]).unique()
@@ -544,10 +467,9 @@ def plot_payoff_by_mbti(dfs: dict[str, pd.DataFrame], out_dir: Optional[str] = N
     _save_or_show(fig, out_dir, "payoff_by_mbti.png")
 
 def summarize_results(path: str) -> None:
-    """Print a summary for a single results file (legacy entry point)."""
     p = Path(path)
     if not p.exists():
-        print(f"ERROR: File not found: {path}")
+        print(f"File not found: {path}")
         return
     df = load_matches(path)
     condition = df["condition"].iloc[0] if "condition" in df.columns and len(df) else p.name
@@ -581,9 +503,6 @@ def main(out_dir: Optional[str] = "data/analysis") -> None:
         dfs[cond] = load_matches(path)
         champ_dfs[cond] = load_champions(path)
 
-    # ------------------------------------------------------------------
-    # 1. Per-condition summaries
-    # ------------------------------------------------------------------
     for cond, df in dfs.items():
         n = len(df)
         esc_rate = (df["escalate_a"].sum() + df["escalate_b"].sum()) / (2 * n)
@@ -600,11 +519,8 @@ def main(out_dir: Optional[str] = "data/analysis") -> None:
         print("\nPer-MBTI mean payoffs:")
         print(payoff_by_mbti(df).to_string(index=False))
 
-    # ------------------------------------------------------------------
-    # 2. MBTI dimension analysis
-    # ------------------------------------------------------------------
     print(f"\n{'='*55}")
-    print("MBTI DIMENSION ANALYSIS — ESCALATION RATE")
+    print("MBTI DIMENSION ANALYSIS - ESCALATION RATE")
     print(f"{'='*55}")
     for cond, df in dfs.items():
         print(f"\n  --- {cond} ---")
@@ -616,7 +532,7 @@ def main(out_dir: Optional[str] = "data/analysis") -> None:
                 print(f"    {dim}: {p0}={row[p0]:.3f}  {p1}={row[p1]:.3f}  (diff={abs(row[p0]-row[p1]):.3f})")
 
     print(f"\n{'='*55}")
-    print("MBTI DIMENSION ANALYSIS — WIN RATE")
+    print("MBTI DIMENSION ANALYSIS - WIN RATE")
     print(f"{'='*55}")
     for cond, df in dfs.items():
         print(f"\n  --- {cond} ---")
@@ -627,16 +543,12 @@ def main(out_dir: Optional[str] = "data/analysis") -> None:
                 p0, p1 = poles
                 print(f"    {dim}: {p0}={row[p0]:.3f}  {p1}={row[p1]:.3f}  (diff={abs(row[p0]-row[p1]):.3f})")
 
-    # Chi-squared for each condition
     for cond, df in dfs.items():
         print(f"\n  --- Chi-squared (dimension escalation, {cond}) ---")
         chi_df = dimension_chi_squared(df, label=cond)
         if not chi_df.empty:
             print(chi_df.to_string(index=False))
 
-    # ------------------------------------------------------------------
-    # 3. Condition comparison
-    # ------------------------------------------------------------------
     print(f"\n{'='*55}")
     print("CONDITION COMPARISON")
     print(f"{'='*55}")
@@ -645,9 +557,6 @@ def main(out_dir: Optional[str] = "data/analysis") -> None:
     print("\nPairwise chi-squared tests (escalation rate):")
     condition_pairwise_chi_squared(dfs)
 
-    # ------------------------------------------------------------------
-    # 4. Champion analysis
-    # ------------------------------------------------------------------
     print(f"\n{'='*55}")
     print("CHAMPION ANALYSIS")
     print(f"{'='*55}")
@@ -657,9 +566,6 @@ def main(out_dir: Optional[str] = "data/analysis") -> None:
         sub = champ_table[champ_table["condition"] == cond]
         print(sub[["mbti", "champion_count", "champion_rate"]].to_string(index=False))
 
-    # ------------------------------------------------------------------
-    # 5. Reasoning trace (if reason fields are logged)
-    # ------------------------------------------------------------------
     for cond, df in dfs.items():
         trace = reasoning_trace_analysis(df)
         if trace is not None:
@@ -668,12 +574,9 @@ def main(out_dir: Optional[str] = "data/analysis") -> None:
             print(f"{'='*55}")
             print(trace.to_string(index=False))
 
-    # ------------------------------------------------------------------
-    # 6. Visualizations
-    # ------------------------------------------------------------------
     if out_dir:
         print(f"\n{'='*55}")
-        print(f"GENERATING VISUALIZATIONS → {out_dir}/")
+        print(f"GENERATING VISUALIZATIONS -> {out_dir}/")
         print(f"{'='*55}")
         plot_escalation_by_mbti(dfs, out_dir)
         plot_dimension_escalation(dfs, out_dir)
@@ -685,11 +588,7 @@ def main(out_dir: Optional[str] = "data/analysis") -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Analyze Game of Chicken results.")
-    parser.add_argument(
-        "--out-dir",
-        default="data/analysis",
-        help="Directory to save plots (default: data/analysis). Pass '' to show interactively.",
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out-dir", default="data/analysis")
     args = parser.parse_args()
     main(out_dir=args.out_dir or None)

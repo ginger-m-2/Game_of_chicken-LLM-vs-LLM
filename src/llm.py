@@ -26,7 +26,7 @@ load_dotenv(override=True)
 
 os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
 
-llm_agent_model_string = "gemini-2.5-flash-lite"
+llm_agent_model_string = "gemini-2.5-flash"
 
 # DOES NOT WORK AS OF NOW - NEED TO ACTUALLY INSERT VARIABLES INTO THE GAME PROMPT
 class LLMAgent:
@@ -59,7 +59,6 @@ class LLMAgent:
         # - and thus here is what I want to do)
         agent_action_context_window = [SystemMessage(content=formatted_game_prompt), HumanMessage(content="Follow system instructions and ONLY RETURN THE CHOSEN ACTION AND NOTHING ELSE.")]
 
-        # Get action from the LLM, and return it to the outside world.
         return {
             "chosen_action": self.mbti_llm.invoke(agent_action_context_window)
         } 

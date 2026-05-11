@@ -18,11 +18,27 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from statistics import mean, pvariance
 from typing import Dict, List, Optional, Tuple
+
+
+_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None or os.environ.get("FORCE_COLOR") == "1"
+
+
+def _h(text: str) -> str:
+    return f"\033[1;36m{text}\033[0m" if _COLOR else text
+
+
+def _dim(text: str) -> str:
+    return f"\033[2m{text}\033[0m" if _COLOR else text
+
+
+def _hi(text: str) -> str:
+    return f"\033[32m{text}\033[0m" if _COLOR else text
 
 
 DIMENSION_LABELS = {
@@ -73,7 +89,7 @@ def champions_by_condition(rows: List[dict]) -> Dict[str, Counter]:
 # 1. Champion frequency
 
 def section_champion_frequency(champions: Dict[str, Counter]) -> str:
-    lines = ["=== Champion Frequency by Condition ==="]
+    lines = [_h("=== Champion Frequency by Condition ===")]
     for condition in sorted(champions):
         counter = champions[condition]
         total = sum(counter.values())
@@ -103,7 +119,7 @@ def mutual_drive_count(matches: List[dict]) -> int:
 
 
 def section_action_summary(by_condition: Dict[str, List[dict]]) -> str:
-    lines = ["=== Action Summary by Condition ==="]
+    lines = [_h("=== Action Summary by Condition ===")]
     lines.append("")
     lines.append(f"{'condition':<20} {'n_actions':>10} {'drive_rate':>11} {'mutual_drive_rate':>18}")
     for condition in sorted(by_condition):
@@ -114,7 +130,7 @@ def section_action_summary(by_condition: Dict[str, List[dict]]) -> str:
         mutual = mutual_drive_count(matches)
         mutual_rate = safe_div(mutual, len(matches))
         lines.append(
-            f"{condition:<20} {total_actions:>10} {drive_rate:>11.4f} {mutual_rate:>18.4f}"
+            f"{condition:<20} {total_actions:>10} {_hi(f'{drive_rate:>11.4f}')} {_hi(f'{mutual_rate:>18.4f}')}"
         )
     return "\n".join(lines)
 
@@ -157,7 +173,7 @@ def try_scipy_chi2(table: List[List[int]]) -> Optional[Tuple[float, float, int]]
 
 
 def section_chi_square(by_condition: Dict[str, List[dict]]) -> str:
-    lines = ["=== Chi-square: DRIVE vs YIELD across conditions ==="]
+    lines = [_h("=== Chi-square: DRIVE vs YIELD across conditions ===")]
     lines.append("")
     lines.append("Pairwise tests with df=1 (each comparison is a 2x2 contingency table).")
     lines.append("")
@@ -179,7 +195,7 @@ def section_chi_square(by_condition: Dict[str, List[dict]]) -> str:
         else:
             chi2, p, _ = chi_square_2x2(d1, y1, d2, y2)
         label = f"{c1} vs {c2}"
-        lines.append(f"{label:<40} {chi2:>10.4f} {p:>12.4g}")
+        lines.append(f"{label:<40} {_hi(f'{chi2:>10.4f}')} {_hi(f'{p:>12.4g}')}")
 
     return "\n".join(lines)
 
@@ -206,7 +222,7 @@ def per_agent_per_tournament_drive_rates(
 
 
 def section_consistency(by_condition: Dict[str, List[dict]]) -> str:
-    lines = ["=== Cross-Tournament Behavioral Consistency ==="]
+    lines = [_h("=== Cross-Tournament Behavioral Consistency ===")]
     lines.append("")
     lines.append("For each agent we compute its DRIVE rate within each tournament,")
     lines.append("then take the population variance across tournaments. We report")
@@ -228,7 +244,7 @@ def section_consistency(by_condition: Dict[str, List[dict]]) -> str:
                 per_agent_variances.append(pvariance(rates))
         mean_var = mean(per_agent_variances) if per_agent_variances else 0.0
         lines.append(
-            f"{condition:<20} {len(per_agent):>10} {mean_var:>28.6f}"
+            f"{condition:<20} {len(per_agent):>10} {_hi(f'{mean_var:>28.6f}')}"
         )
 
     return "\n".join(lines)
@@ -260,7 +276,7 @@ def per_agent_action_counts(
 
 
 def section_dimension_breakdown(by_condition: Dict[str, List[dict]]) -> str:
-    lines = ["=== MBTI Dimension Breakdown (DRIVE rate & win rate) ==="]
+    lines = [_h("=== MBTI Dimension Breakdown (DRIVE rate & win rate) ===")]
     lines.append("")
     lines.append("For each MBTI dimension we group the 16 agents into the two sides")
     lines.append("(like E vs I) and aggregate every action they took and every match")
@@ -294,7 +310,7 @@ def section_dimension_breakdown(by_condition: Dict[str, List[dict]]) -> str:
                 win_rate = safe_div(wins_total, matches_total)
                 lines.append(
                     f"{dim_key:<10} {side_letter:<5} {n_agents:>9} "
-                    f"{drive_rate:>11.4f} {win_rate:>10.4f} {matches_total:>10}"
+                    f"{_hi(f'{drive_rate:>11.4f}')} {_hi(f'{win_rate:>10.4f}')} {matches_total:>10}"
                 )
 
     return "\n".join(lines)
@@ -304,7 +320,7 @@ def section_dimension_breakdown(by_condition: Dict[str, List[dict]]) -> str:
 
 def section_shuffled_prompt_vs_identity(by_condition: Dict[str, List[dict]]) -> str:
     matches = by_condition.get("shuffled_persona", [])
-    lines = ["=== Shuffled Persona: prompt-keyed vs identity-keyed DRIVE rate ==="]
+    lines = [_h("=== Shuffled Persona: prompt-keyed vs identity-keyed DRIVE rate ===")]
     if not matches:
         lines.append("")
         lines.append("(no shuffled_persona matches present)")
@@ -342,11 +358,11 @@ def section_shuffled_prompt_vs_identity(by_condition: Dict[str, List[dict]]) -> 
     lines.append("grouped by the agent's intrinsic identity MBTI.")
     lines.append("")
     lines.append(f"{'grouping':<25} {'between-group variance':>25}")
-    lines.append(f"{'by prompt MBTI':<25} {var_prompt:>25.6f}")
-    lines.append(f"{'by agent identity':<25} {var_identity:>25.6f}")
+    lines.append(f"{'by prompt MBTI':<25} {_hi(f'{var_prompt:>25.6f}')}")
+    lines.append(f"{'by agent identity':<25} {_hi(f'{var_identity:>25.6f}')}")
     ratio = safe_div(var_prompt, var_identity) if var_identity > 0 else float("inf")
     lines.append("")
-    lines.append(f"Ratio (prompt / identity): {ratio:.3f}")
+    lines.append(f"Ratio (prompt / identity): {_hi(f'{ratio:.3f}')}")
 
     return "\n".join(lines)
 
@@ -354,7 +370,7 @@ def section_shuffled_prompt_vs_identity(by_condition: Dict[str, List[dict]]) -> 
 # 8. Prompt assignment summary (sanity check)
 
 def section_prompt_assignment(by_condition: Dict[str, List[dict]]) -> str:
-    lines = ["=== Prompt Assignment Sanity Check ==="]
+    lines = [_h("=== Prompt Assignment Sanity Check ===")]
     for condition in sorted(by_condition):
         counts: Counter = Counter()
         for m in by_condition[condition]:
@@ -378,7 +394,7 @@ def section_prompt_assignment(by_condition: Dict[str, List[dict]]) -> str:
 # Reasoning-trace coverage
 
 def section_reasoning_coverage(by_condition: Dict[str, List[dict]]) -> str:
-    lines = ["=== Reasoning Trace Coverage ==="]
+    lines = [_h("=== Reasoning Trace Coverage ===")]
     lines.append("")
     lines.append("Fraction of agent appearances that include a parsed 'reason' string.")
     lines.append("Coverage < 100% indicates the model returned non-JSON output for those")
